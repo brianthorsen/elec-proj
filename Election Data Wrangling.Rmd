@@ -1,0 +1,94 @@
+---
+title: "Election Data Wrangling"
+author: "Kean Amidi-Abraham, Ryan Haeri, Kevin Marroquin, Ryan Saraie, Brian Thorsen"
+date: "11/27/2016"
+output: html_document
+---
+
+```{r packages}
+library(XML)
+library(ggplot2)
+```
+
+## Obtaining 2012 results
+#### Credit: Haeri, Thorsen
+
+2012 election results are available as a set of 50 XML files. From these files, we will extract the votes for Obama, votes for Romney, and county and state information for each county in each state.
+
+```{r utility functions}
+numCoercer <- function(string) {
+  ## Drops whitespace and commas from string of a number and converts remaining digits to numeric.
+  string <- gsub('[[:blank:]]|[[:punct:]]', "", string)
+  return(as.numeric(string))
+}
+
+getCountyName <- function(string) {
+  return(gsub("[[:blank:]][[:digit:]].*", "", string))
+}
+```
+
+These functions will be needed later on for transforming the text within the XML files. For instance, the popular vote for Romney in Autagua county is stored as `   17,366` (with whitespace). `numCoercer` should convert this string to the number `17366`. Additionally, the county information obtained using our xPath (`countyPath`, seen below) returns the county as well as the percentage of vote reporting; e.g. `Autauga 100.0% Reporting`. `getCountyName` removes the space before digits and everything following a digit, so that it would return `Autauga`. This function has its pitfalls, namely if a county name includes a number. However, this is not a concern for this particular data set, as all counties have purely alphabetic names\*.
+
+\*(https://en.wikipedia.org/wiki/List_of_United_States_counties_and_county_equivalents)
+
+```{r list of names}
+stateNames <- read.csv("http://www.stat.berkeley.edu/~nolan/data/voteProject/countyVotes2012/stateNames.txt")
+
+stateNamesNoAK <- stateNames[stateNames != "alaska",]
+```
+
+Names of all states, including D.C., available from Prof. Nolan's website. For the 2012 election results, Alaska information is not available in an XML file, and must be excluded when obtaining data.
+
+Because each file corresponds to a specific state, it is necessary to apply a function over the contents of `stateNamesNoAK`. The following code stores the results for each state as an element in a list of 50 elements.
+
+```{r 2012 results, eval = FALSE}
+results2012 <- lapply(stateNamesNoAK, function(sName) {
+  
+  ## Step 1:
+  ## Prepare XML file for each state
+  url <- paste("http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2012/",
+               sName,".xml",sep = "")
+  stateXML <- xmlParse(url)
+  stateRoot <- xmlRoot(stateXML)
+  
+  ## Step 2:
+  ## xPaths needed to extract information
+  demVotePath <- "//*[abbr='Dem']/parent::tr/td[@class='results-popular']"
+  gopVotePath <- "//*[abbr='GOP']/parent::tr/td[@class='results-popular']"
+  countyPath <-  "//tbody/tr//th[@class='results-county']"
+   
+  ## Step 3:   
+  ## Obtain & coerce information into needed data types
+  demNumVotes <- numCoercer(xpathSApply(stateRoot, demVotePath, xmlValue))
+  gopNumVotes <- numCoercer(xpathSApply(stateRoot, gopVotePath, xmlValue))
+  countyName <- getCountyName(xpathSApply(stateRoot, countyPath, xmlValue))
+
+  ## Step 4:
+  ## Construct data frames to be stored in list
+  return(data.frame(state = rep(sName, length(countyName)),
+                            county = countyName,
+                            obamaVotes2012 = demNumVotes,
+                            romneyVotes2012 = gopNumVotes))
+})
+
+```
+
+*Step 1*: A URL for a given state is formed, and the XML contained within the URL is parsed. Its root will be used for successive functions.
+
+*Step 2*: Voting results for both parties and county names can be found using the given xPaths. The first two find any node with an `abbr` value for the desired party, and move to the parent node directly above. One of its child nodes (a sibling of the `abbr` node) contains the popular vote count: the node whose attribute `class` is named `results-popular`. `countyPath` directly locates the county name of each county, with some extra information as noted above.
+
+*Step 3*: Using the xPaths in step 2, the information for each county is stored across three vectors through an `xPathSApply` that is then converted into the proper format using the utility functions described above.
+
+*Step 4*: A data frame is constructed containing all necessary information for a given state. The state name is recycled for each county using `rep`. The index order of the three vectors from step 3 keeps each county and vote count properly associated with one another.
+
+
+```{r reduce2012, eval = FALSE}
+results2012 <- Reduce(rbind, results2012[-1], init = results2012[[1]])
+```
+
+`results2012` is initially a list of 50 different data frames. We combine the results using a reduce function: all the other DFs are recursively bound to the first element of the list using `Reduce` and `rbind`.
+
+```{r load 2012 data, echo = FALSE}
+load("data/results2012.rda")
+```
+
