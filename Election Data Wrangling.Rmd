@@ -143,8 +143,44 @@ load("data/results2012.rda")
 
 ```{r}
 c(length(unique(results2012$state)), length(unique(results2012$countyFIPS)))
-nrow(results2016)
+nrow(results2012) - nrow(results2016)
 ```
+
+Each county in `results2012` has a unique FIPS code, just as expected. Because Alaska is missing, there are fewer counties in the 2012 data frame, but Alaska has only 19 boroughs (https://en.wikipedia.org/wiki/List_of_boroughs_and_census_areas_in_Alaska). As such, there should be 9 additional counties that are missing from the 2012 election data. Let's find them.
+
+```{r}
+results2016[!(results2016$combined_fips %in% results2012$countyFIPS),c("county_name", "combined_fips")]
+```
+
+All of the missing counties appear to be in Alaska, which resolves that particular issue. However, there are 29 county codes in the 2016 data frame that are not in the 2012 data frame; 1 more than the difference in the number of rows. This suggests that there might be a repeated county in the 2012 data frame.
+
+## Merging 2012 and 2016
+#### Credit: Thorsen
+
+```{r merge 12 and 16, eval = FALSE}
+results12and16 <- merge(x = results2012, y = results2016,
+                        by.x = "countyFIPS", by.y = "combined_fips",
+                        all.x = FALSE, all.y = FALSE)
+```
+
+```{r, echo = FALSE}
+load("data/results12and16.rda")
+```
+
+We merge the 2012 and 2016 data frames by FIPS codes, which allows us to circumvent issues of how state and county names are stored in each data frame. Because the 2012 voting data is, qualitatively speaking, a crucial predictor of the 2016 election results, we do not want to work with counties which are missing this important data point. As such, we use `all.(x/y) = FALSE` to look at only the intersection of the merge operation.
+
+```{r}
+nrow(results12and16)
+```
+
+The merged data frame has 3112 rows, exactly one less row than the 2012 results. This explains the one row discrepancy noted above: one county appears in the 2012 data that is missing in the 2016 data. So, while we have shown that only the Alaska results would be dropped from the 2016 data frame, we must determine what county is dropped from the 2012 data frame.
+
+```{r}
+results2012[!(results2012$countyFIPS %in% results12and16$countyFIPS),]
+results12and16[results12and16$county == "Bedford",1:5]
+```
+
+Bedford City, Virginia is the missing row. However, Bedford, VA still appears in the merged results, and the city is a part of the county (https://en.wikipedia.org/wiki/Bedford,_Virginia). The county that is preserved in the data frame has a significantly larger number of votes than Bedford City, so the remaining county will be a sufficient analogue, particularly for mapping purposes.
 
 #### Acknowledgements 
 
