@@ -10,26 +10,33 @@ library(XML)
 library(ggplot2)
 ```
 
-## Obtaining 2012 results
+## 2016 Results
+#### Credit: Thorsen
+
+```{r 2016 results, eval = FALSE}
+results2016 <- read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/2016_US_County_Level_Presidential_Results.csv")
+
+results2016$state_abbr <- as.character(results2016$state_abbr)
+results2016$county_name <- as.character(results2016$county_name)
+```
+
+2016 data available in CSV directly from the web. State abbreviations and county names are converted from factor to character so as to prevent possible issues in merging data frames later on.
+
+```{r load 2016, echo = FALSE}
+load("data/results2016.rda")
+```
+
+```{r}
+c(length(unique(results2016$state_abbr)), length(unique(results2016$combined_fips)))
+nrow(results2016)
+```
+
+All 51 states (including D.C.) are present in the 2016 results. 3141 unique counties are represented in the 2016 data, as shown by the number of unique FIPS codes. To join this data frame to the 2012 results, we will merge by the FIPS code for each county.
+
+## 2012 Results
 #### Credit: Haeri, Thorsen
 
 2012 election results are available as a set of 50 XML files. From these files, we will extract the votes for Obama, votes for Romney, and county and state information for each county in each state.
-
-```{r utility functions}
-numCoercer <- function(string) {
-  ## Drops whitespace and commas from string of a number and converts remaining digits to numeric.
-  string <- gsub('[[:blank:]]|[[:punct:]]', "", string)
-  return(as.numeric(string))
-}
-
-getCountyName <- function(string) {
-  return(gsub("[[:blank:]][[:digit:]].*", "", string))
-}
-```
-
-These functions will be needed later on for transforming the text within the XML files. For instance, the popular vote for Romney in Autagua county is stored as `   17,366` (with whitespace). `numCoercer` should convert this string to the number `17366`. Additionally, the county information obtained using our xPath (`countyPath`, seen below) returns the county as well as the percentage of vote reporting; e.g. `Autauga 100.0% Reporting`. `getCountyName` removes the space before digits and everything following a digit, so that it would return `Autauga`. This function has its pitfalls, namely if a county name includes a number. However, this is not a concern for this particular data set, as all counties have purely alphabetic names\*.
-
-\*(https://en.wikipedia.org/wiki/List_of_United_States_counties_and_county_equivalents)
 
 ```{r list of names}
 stateNames <- read.csv("http://www.stat.berkeley.edu/~nolan/data/voteProject/countyVotes2012/stateNames.txt")
@@ -41,9 +48,42 @@ Names of all states, including D.C., available from Prof. Nolan's website. For t
 
 Because each file corresponds to a specific state, it is necessary to apply a function over the contents of `stateNamesNoAK`. The following code stores the results for each state as an element in a list of 50 elements.
 
+#### Utility functions
+
+```{r utility functions}
+numCoercer <- function(string) {
+  ## Drops whitespace and commas from string of a number and converts remaining digits to numeric.
+  string <- gsub('[[:blank:]]|[[:punct:]]', "", string)
+  return(as.numeric(string))
+}
+
+getCountyName <- function(string) {
+  return(gsub("[[:blank:]][[:digit:]].*", "", string))
+}
+
+getFipsCode <- function(list) {
+  if(typeof(list) == "character") {
+    return(as.numeric(gsub("county", "", list)))
+  }
+  
+  sapply(list, function(elem) {
+    return(as.numeric(gsub("county", "", elem[["id"]])))
+  })
+}
+```
+
+These functions will be needed later on for transforming the text within the XML files. For instance, the popular vote for Romney in Autagua county is stored as `   17,366` (with whitespace). `numCoercer` should convert this string to the number `17366`. Additionally, the county information obtained using our xPath (`countyPath`, seen below) returns the county as well as the percentage of vote reporting; e.g. `Autauga 100.0% Reporting`. 
+
+`getCountyName` removes the space before digits and everything following a digit, so that it would return `Autauga`. This function has its pitfalls, namely if a county name includes a number. However, this is not a concern for this particular data set, as all counties have purely alphabetic names\*.
+
+`getFipsCode` works somewhat differently, as the FIPS code is stored as an attribute name within the XML file. As such, `xmlAttrs` is used to find its information, and `xmlAttrs` will return a list of vectors when multiple attributes exist for a node. `getFipsCode` looks for the `id` within each element of the list, and coerces it into the proper type. For instance, Autauga county is stored as `"county1001"`, which is converted into `1001`. There is additionally a special case for DC, as there is only one county in DC. `xmlAttrs` only returns a single character vector for DC, so this is accounted for in the `if` clause.
+
+\*(https://en.wikipedia.org/wiki/List_of_United_States_counties_and_county_equivalents)
+
+
 ```{r 2012 results, eval = FALSE}
 results2012 <- lapply(stateNamesNoAK, function(sName) {
-  
+
   ## Step 1:
   ## Prepare XML file for each state
   url <- paste("http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2012/",
@@ -56,26 +96,33 @@ results2012 <- lapply(stateNamesNoAK, function(sName) {
   demVotePath <- "//*[abbr='Dem']/parent::tr/td[@class='results-popular']"
   gopVotePath <- "//*[abbr='GOP']/parent::tr/td[@class='results-popular']"
   countyPath <-  "//tbody/tr//th[@class='results-county']"
+  fipsPath <- "//tbody"
    
   ## Step 3:   
   ## Obtain & coerce information into needed data types
   demNumVotes <- numCoercer(xpathSApply(stateRoot, demVotePath, xmlValue))
   gopNumVotes <- numCoercer(xpathSApply(stateRoot, gopVotePath, xmlValue))
-  countyName <- getCountyName(xpathSApply(stateRoot, countyPath, xmlValue))
+  countyNames <- getCountyName(xpathSApply(stateRoot, countyPath, xmlValue))
+  countyCodes <- getFipsCode(xpathSApply(stateRoot, fipsPath, xmlAttrs))
 
   ## Step 4:
   ## Construct data frames to be stored in list
-  return(data.frame(state = rep(sName, length(countyName)),
-                            county = countyName,
-                            obamaVotes2012 = demNumVotes,
-                            romneyVotes2012 = gopNumVotes))
+  return(data.frame(state = rep(sName, length(countyNames)),
+                    county = countyNames,
+                    countyFIPS = countyCodes,
+                    obamaVotes2012 = demNumVotes,
+                    romneyVotes2012 = gopNumVotes))
 })
 
 ```
 
 *Step 1*: A URL for a given state is formed, and the XML contained within the URL is parsed. Its root will be used for successive functions.
 
-*Step 2*: Voting results for both parties and county names can be found using the given xPaths. The first two find any node with an `abbr` value for the desired party, and move to the parent node directly above. One of its child nodes (a sibling of the `abbr` node) contains the popular vote count: the node whose attribute `class` is named `results-popular`. `countyPath` directly locates the county name of each county, with some extra information as noted above.
+*Step 2*: Voting results for both parties and county names can be found using the given xPaths. The first two find any node with an `abbr` value for the desired party, and move to the parent node directly above. One of its child nodes (a sibling of the `abbr` node) contains the popular vote count: the node whose attribute `class` is named `results-popular`. 
+
+`countyPath` directly locates the county name of each county, with some extra information as noted above.
+
+The FIPS code of each county is stored as the name of an attribute in each `tbody`.
 
 *Step 3*: Using the xPaths in step 2, the information for each county is stored across three vectors through an `xPathSApply` that is then converted into the proper format using the utility functions described above.
 
@@ -84,11 +131,64 @@ results2012 <- lapply(stateNamesNoAK, function(sName) {
 
 ```{r reduce2012, eval = FALSE}
 results2012 <- Reduce(rbind, results2012[-1], init = results2012[[1]])
+results2012$county <- as.character(results2012$county)
+results2012$state <- as.character(results2012$state)
 ```
 
-`results2012` is initially a list of 50 different data frames. We combine the results using a reduce function: all the other DFs are recursively bound to the first element of the list using `Reduce` and `rbind`.
+`results2012` is initially a list of 50 different data frames. We combine the results using a reduce function: all the other DFs are recursively bound to the first element of the list using `Reduce` and `rbind`. Additionally, county and state names are intially stored as factors, so we convert them to characters to prevent possible issues in merging operations.
 
 ```{r load 2012 data, echo = FALSE}
 load("data/results2012.rda")
 ```
 
+```{r}
+c(length(unique(results2012$state)), length(unique(results2012$countyFIPS)))
+nrow(results2012) - nrow(results2016)
+```
+
+Each county in `results2012` has a unique FIPS code, just as expected. Because Alaska is missing, there are fewer counties in the 2012 data frame, but Alaska has only 19 boroughs (https://en.wikipedia.org/wiki/List_of_boroughs_and_census_areas_in_Alaska). As such, there should be 9 additional counties that are missing from the 2012 election data. Let's find them.
+
+```{r}
+results2016[!(results2016$combined_fips %in% results2012$countyFIPS),c("county_name", "combined_fips")]
+```
+
+All of the missing counties appear to be in Alaska, which resolves that particular issue. However, there are 29 county codes in the 2016 data frame that are not in the 2012 data frame; 1 more than the difference in the number of rows. This suggests that there might be a repeated county in the 2012 data frame.
+
+## Merging 2012 and 2016
+#### Credit: Thorsen
+
+```{r merge 12 and 16, eval = FALSE}
+results12and16 <- merge(x = results2012, y = results2016,
+                        by.x = "countyFIPS", by.y = "combined_fips",
+                        all.x = FALSE, all.y = FALSE)
+```
+
+```{r, echo = FALSE}
+load("data/results12and16.rda")
+```
+
+We merge the 2012 and 2016 data frames by FIPS codes, which allows us to circumvent issues of how state and county names are stored in each data frame. Because the 2012 voting data is, qualitatively speaking, a crucial predictor of the 2016 election results, we do not want to work with counties which are missing this important data point. As such, we use `all.(x/y) = FALSE` to look at only the intersection of the merge operation.
+
+```{r}
+nrow(results12and16)
+```
+
+The merged data frame has 3112 rows, exactly one less row than the 2012 results. This explains the one row discrepancy noted above: one county appears in the 2012 data that is missing in the 2016 data. So, while we have shown that only the Alaska results would be dropped from the 2016 data frame, we must determine what county is dropped from the 2012 data frame.
+
+```{r}
+results2012[!(results2012$countyFIPS %in% results12and16$countyFIPS),]
+results12and16[results12and16$county == "Bedford",1:5]
+```
+
+Bedford City, Virginia is the missing row. However, Bedford, VA still appears in the merged results, and the city is a part of the county (https://en.wikipedia.org/wiki/Bedford,_Virginia). The county that is preserved in the data frame has a significantly larger number of votes than Bedford City, so the remaining county will be a sufficient analogue, particularly for mapping purposes.
+
+#### Acknowledgements 
+
+- Data hosting courtesy of Professor Deborah Nolan
+
+- 2016 results originally available from https://github.com/tonmcg/County_Level_Election_Results_12-
+16/blob/master/2016_US_County_Level_Presidential_Results.csv
+
+- 2012 results originally available from http://www.politico.com/2012-election/map/#/President/2012/
+
+- `numCoercer` utility function based on http://stackoverflow.com/questions/1523126/how-to-read-data-when-some-numbers-contain-commas-as-thousand-separator
