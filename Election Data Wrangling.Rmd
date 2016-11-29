@@ -182,6 +182,119 @@ results12and16[results12and16$county == "Bedford",1:5]
 
 Bedford City, Virginia is the missing row. However, Bedford, VA still appears in the merged results, and the city is a part of the county (https://en.wikipedia.org/wiki/Bedford,_Virginia). The county that is preserved in the data frame has a significantly larger number of votes than Bedford City, so the remaining county will be a sufficient analogue, particularly for mapping purposes.
 
+## Geographic Information
+#### Credit: Haeri (purely visual/name edits by Thorsen)
+
+
+```{r}
+gmlCoercer <- function(states) {
+  ## Splits a messy string of county geographic information
+  ## into three components: name, latitude, and longitude.
+  string <- gsub("\n", "", states)
+  string <- gsub("^[[:blank:]]+|[[:blank:]]+$", "", string)
+  string <- gsub("(?<=[[:alpha:]])[[:blank:]]+|[[:digit:]][[:blank:]]+", " ", string, perl = TRUE)
+return(strsplit(string, 
+                split = "(?<=[[:alpha:]])([[:blank:]])(?=[[:punct:]]|[[:digit:]])|[[:digit:]][[:blank:]][[:digit:]]", 
+                perl = TRUE))
+}
+```
+
+```{r geographic results, eval = FALSE}
+
+## Append DC code to default set of state abbreviations
+stateCodes <- c(state.abb, "DC")
+
+geoInfo <- lapply(stateCodes, function(abb) {
+  
+  ## Step 1:
+  ## Get root of GML file
+  gmlURL <- "http://www.stat.berkeley.edu/users/nolan/data/voteProject/counties.gml"
+  gmlFile <- xmlParse(gmlURL)
+  gmlRoot <- xmlRoot(gmlFile)
+  
+  ## Step 2:
+  ## xPath for reaching the county level geographic information for each state
+  countyPath = paste("//doc/state/gml:name[@abbreviation='",abb,"']/parent::state/county",sep="")
+
+  ## Step 3a:
+  ## Obtain and clean up messy geographic information string;
+  ## result is list of vectors of length 3
+  countyValues = gmlCoercer(xpathSApply(gmlRoot, countyPath, xmlValue))
+  
+  ## 3b: Combine information from sublists by index
+  countyName = sapply(countyValues, function(elem) {elem[[1]]})
+  lat = sapply(countyValues, function(elem) {elem[[2]]})
+  long = sapply(countyValues, function(elem) {elem[[3]]})
+
+  ## Step 4:
+  ## Return information as data frame
+  return(data.frame(state = rep(abb, length(countyPath)), 
+                    county = countyName, 
+                    latitude = as.numeric(lat), 
+                    longitude = as.numeric(long)))
+})
+
+## Combine list elements into single data frame
+geoInfo <- Reduce(rbind, geoInfo[-1], init = geoInfo[[1]])
+```
+
+```{r, echo = FALSE}
+load("data/geoInfo.rda")
+```
+
+```{r}
+## Coerce geoInfo columns into more useful data types
+geoInfo$state <- as.character(geoInfo$state)
+geoInfo$county <- as.character(geoInfo$county)
+```
+
+## Merging Geographic Information
+#### Credit: Thorsen
+
+It is probable that most county names are shared between `geoInfo` and the current merged table.
+
+```{r}
+mean(results12and16$county_name %in% geoInfo$county)
+```
+
+Just as we expected. However, many county names are duplicates across states. To account for this, we will paste together the county name and state name as new variables in each data frame, and see how this affects the percentage for which an intersection merge will retain the data.
+
+```{r}
+results12and16$countyState <- paste(results12and16$county_name,", ",results12and16$state_abbr, sep="")
+geoInfo$countyState <- paste(geoInfo$county,", ",geoInfo$state, sep="")
+
+mean(results12and16$countyState %in% geoInfo$countyState)
+```
+
+Using these variables will result in over 99% of the data successfully being merged. However, let us examine the counties in each data set for which their name cannot be found in the other data frame.
+
+```{r}
+results12and16[!(results12and16$countyState %in% geoInfo$countyState),"countyState"]
+
+geoInfo[!(geoInfo$countyState %in% results12and16$countyState) 
+        & geoInfo$state != "AK","countyState"]
+```
+
+By cross referencing the two tables, all but one of the counties in `results12and16` can be accounted for. LaSalle and McKean do not show up due to an added space in the `geoInfo` table. Oglala County, SD is due to a change in name: it was previously referred to as Shannon County until May 2015 (https://en.wikipedia.org/wiki/Oglala_Lakota_County,_South_Dakota).
+
+Manual reassignment of these three names will allow for a successful merge. Broomfield County will unfortunately be lost in this merge operation.
+
+```{r manual assign county names}
+geoInfo[geoInfo$countyState == "La Salle County, IL","countyState"] <- "LaSalle County, IL"
+geoInfo[geoInfo$countyState == "Mc Kean County, PA","countyState"] <- "McKean County, PA"
+geoInfo[geoInfo$countyState == "Shannon County, SD","countyState"] <- "Oglala County, SD"
+```
+
+```{r merge geo}
+results12and16Geo <- merge(x = results12and16, y = geoInfo,
+                           by.x = "countyState", by.y = "countyState",
+                           all.x = FALSE, all.y = FALSE)
+
+nrow(results12and16Geo)
+```
+
+Another intersection merge, which leaves the data thus far almost entirely intact. Only two counties out of 3113 have been involuntarily dropped in the merge operations so far -- not bad!
+
 #### Acknowledgements 
 
 - Data hosting courtesy of Professor Deborah Nolan
