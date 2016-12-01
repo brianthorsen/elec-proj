@@ -42,7 +42,7 @@ For reference, the variable names can be found at http://www.stat.berkeley.edu/~
 ```{r}
 sum(DataB01$POPGROUP.display.label == "Total population")
 
-## This function gives us a good sense of how many counties we're dealing with in total. We have 3217 counties.
+## This function gives us a good sense of how many counties we're dealing with in total. We have 3217 counties. We're setting the standard equal to total population because every county has a listed total population in the data frame, so finding the sum gives us the total number of counties.
 
 CensusDF <- cbind.data.frame(DataB01$GEO.display.label, DataB01$POPGROUP.display.label, DataB01$HD01_VD01) 
 
@@ -101,12 +101,13 @@ Adding several extra columns from the DP02 table, representing different variabl
 - HC03_VC36 - Percentage of people never married
 - HC03_VC37 - Percentage of people now married, except separated
 - HC03_VC38 - Percentage of people separated
+- HC03_VC94 - Percentage of people with bachelors or higher
 
 For reference, the variable names can be found at
 http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP02_metadata.txt
 
 ```{r}
-CensusDF <- merge(CensusDF, DataDP02[ ,c("GEO.display.label", "HC01_VC03", "HC01_VC04","HC01_VC06", "HC01_VC07","HC03_VC08", "HC03_VC09", "HC03_VC11", "HC01_VC13", "HC03_VC14", "HC03_VC15", "HC03_VC17", "HC03_VC18", "HC01_VC20", "HC01_VC21", "HC03_VC36", "HC03_VC37", "HC03_VC38")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
+CensusDF <- merge(CensusDF, DataDP02[ ,c("GEO.display.label", "HC01_VC03", "HC01_VC04","HC01_VC06", "HC01_VC07","HC03_VC08", "HC03_VC09", "HC03_VC11", "HC01_VC13", "HC03_VC14", "HC03_VC15", "HC03_VC17", "HC03_VC18", "HC01_VC20", "HC01_VC21", "HC03_VC36", "HC03_VC37", "HC03_VC38", "HC03_VC94")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
 
 ## We merge CensusDF with all of the relevant DP02 columns, choosing to accept NA values that may be present to allow the data frames to merge.
 ```
@@ -125,7 +126,6 @@ Adding several extra columns from the DP03 table, representing different varialb
 - HC03_VC18 - Percentage of females 16 and over employed in the civilian labor force
 - HC01_VC31 - Estimated # of people commuting to work by public transit (excluding taxi)
 - HC01_VC34 - Estimated # of people working at home
-- HC03_VC40 - Estimated # of civilian employed population 16 years and over
 - HC01_VC42 - Estimated # of employed civilians with service occupations
 - HC01_VC51 - Estimated # of employed civilians in construction
 - HC01_VC52 - Estiamted # of employed civilians in manufacturing
@@ -135,7 +135,7 @@ For reference, the variable names can be found at
 http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP03_metadata.txt
 
 ```{r}
-CensusDF <- merge(CensusDF, DataDP03[ ,c("GEO.display.label", "HC01_VC04", "HC03_VC05", "HC01_VC06", "HC03_VC07", "HC03_VC08", "HC01_VC10", "HC03_VC13", "HC03_VC16", "HC01_VC17", "HC03_VC18", "HC01_VC31", "HC01_VC34", "HC03_VC40", "HC01_VC42", "HC01_VC51", "HC01_VC52", "HC01_VC54")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
+CensusDF <- merge(CensusDF, DataDP03[ ,c("GEO.display.label", "HC01_VC04", "HC03_VC05", "HC01_VC06", "HC03_VC07", "HC03_VC08", "HC01_VC10", "HC03_VC13", "HC03_VC16", "HC01_VC17", "HC03_VC18", "HC01_VC31", "HC01_VC34", "HC01_VC42", "HC01_VC51", "HC01_VC52", "HC01_VC54")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
 
 ## Same process as with the DataDP02 data frame, but with the DP03 data.
 ```
@@ -143,7 +143,18 @@ CensusDF <- merge(CensusDF, DataDP03[ ,c("GEO.display.label", "HC01_VC04", "HC03
 Now that the entire data frame has all of the data we want, we can begin changing the column names to give some context to each column. We use the colnames function:
 
 ```{r}
-colnames(CensusDF) <- c("County", "White Population", "Total Population", "Households", "Family Households", "Family Households with Children under 18 years", "Households with Married Couple Family", "% of Married Families with Children under 18 years", "% of Families with Male & no Wife", "% of Families with Wife & no Husband", "Nonfamily Households", "% of Households with Lone Householder", "% of Households with Lone Householder at least 65 years old", "% of Households with at least one under 18 years", "% of Households with at least one over 65 years", "Average Household Size", "Average Family Size", "% of People Never Married", "% of People Now Married, except Separated", "% of People Separated", "Population 16 years and over", "% of Population in Labor Force", "Population in Civilian Labor Force", "% of Population Employed in Civilian Labor Force", "% of Population Unemployed in Civilian Labor Force", "Population not in Labor Force", "% of Population Unemployed", "% of Females 16 years and over in Labor Force", "Females 16 years and over in Civilian Labor Force", "% of Females Employed in Civilian Labor Force", "Population Commuting to Work (Excluding Taxi)", "Population Working at Home", "Employed Population 16 years and over", "Employed with Service Occupations", "Employed in Construction", "Employed in Manufacturing", "Employed in Retail Trade")
+colnames(CensusDF) <- c("County", "whitePop", "totalPop", 
+                        "households", "hhFamily", "hhFamilyChildren",
+                        "hhMarried", "famWithChildren", "famSingleDad", "famSingleMom", 
+                        "hhNonFamily", "hhLoneHolder", "hhLoneSenior", "hhChildren",
+                        "hhSenior", "hhAvgSize", "famAvgSize", 
+                        "popSingle", "popMarriedSeparated", "popSeparated", "popOver16", 
+                        "popLaborForce", "civilianLF", "employedCLF", "unemployedCLF",
+                        "popNotLaborForce", "unemployed",
+                        "femLaborForce", "femCLF", "femEmployedCLF", "publicTransit",
+                        "workAtHome", "employed", 
+                        "employedServiceOccupations", "construction", "manufacturing",
+                        "retail")
 ```
 
 I now begin the process of merging my data from CensusDF into the larger dataframe. To do this, I separate the state from the county in CensusDF$County, edit the names of the state in CensusDF so that they match up with the main data frame, "results12and16", and then merge the two data frames such that I get all of the info on one table.
@@ -159,17 +170,18 @@ df <- ldply(list)
 
 ## We use plyr to make a data frame from our list, which we named "list". The substitute data frame is named "df".
 
-colnames(df) <- c("County", "State")
-
-## Renaming for simplicity.
-
 CensusDF <- cbind(df, CensusDF)
 
 ## Combining the data frames.
 
-CensusDF[3] <- NULL
+CensusDF$County <- NULL
 
 ## Removing the original "County" column, which we do not need anymore.
+
+names(CensusDF)[names(CensusDF) == 'V1'] <- 'County'
+names(CensusDF)[names(CensusDF) == 'V2'] <- 'State'
+
+## Renaming the column names to make data more meaningful.
 
 CensusDF$State <- tolower(CensusDF$State)
 
