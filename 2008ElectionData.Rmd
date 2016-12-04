@@ -1,0 +1,135 @@
+---
+title: 'Election DF - Part #3'
+authors: "Ryan Saraie, Kevin Marroquin"
+date: "December 2, 2016"
+output: html_document
+---
+
+In this section of merging all of the data into the data frame, we are now looking at the 2008 election data. Bear in mind, the data can be accessed from two separate sources:
+
+- A google sheets page available online at https://docs.google.com/spreadsheets/d/1gLzjUFBk9gtAPfZ-bNZVfFC1zNhGkY_WI_VD_OXHUYI/edit#gid=0
+
+- A downloadable excel file available at
+http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2008.xlsx
+
+To begin this entire process, we install the "readxl" R package and write a function that will allow us to store multiple excel sheets into one list.
+
+```{r}
+## At this point, "readxl" has been manually installed.
+
+library(readxl) 
+
+## The standard requiring of the package.
+## The website https://blog.rstudio.org/2015/04/15/readxl-0-1-0/ was very useful in finding the right package to read the Excel data.
+
+LoadExcelSheets <- function(filename) {
+    sheets <- readxl::excel_sheets(filename)
+    x <- lapply(sheets, function(X) readxl::read_excel(filename,         sheet = X))
+    names(x) <- sheets
+    x
+}
+
+## This is an important function. It takes the file name and sets all of the sheets into a list, as seen by the lapply reading every excel sheet file into the variable "x". 
+
+## After this function, it is important to note that I have downloaded the excel file into my computer, so when I want to read it from the function, I am able to.
+
+## The website http://stackoverflow.com/questions/12945687/read-all-worksheets-in-an-excel-workbook-into-an-r-list-with-data-frames provided extremely useful information in storing multiiple sheets to a single list.
+
+Election08 <- LoadExcelSheets("countyvotes2008.xlsx")
+
+## We save the entire excel file into the R environment.
+```
+
+The next few steps are simply cleaning the data to be useful for the final merge. 
+
+```{r}
+Election08$`Total results`<- NULL
+
+## We get rid of the "Total Results" sheet from the list, as the data is not useful on a specific county basis.
+
+Election08$Alaska <- NULL
+
+## There is little to no Alaska data in this entire project, so we get rid of the Alaska data.
+
+Election08 <- lapply(Election08, function(x) { x[[7]] <- NULL; x })
+
+## This function is useful in that it gets rid of the seventh column in every data frame of the list; all of the seventh columns were blank, and only contained NA values. 
+
+Election08 <- lapply(Election08, as.data.frame)
+
+## For the sake of simplicity, every data frame in the list is confirmed in its class as a data frame.
+```
+
+Upon looking at the list, all of the counties have an extra space after their name. We begin the process of fixing that issue and refitting the data.
+
+```{r}
+Election08 <- lapply(Election08, function(d) {
+  as.data.frame(lapply(d, gsub, pattern = "[[:space:]](*$)", replacement = "")
+  )} )
+
+## This webpage (http://stackoverflow.com/questions/26853287/how-to-use-gsub-to-remove-parts-from-a-list-in-r) was quite helpful in figuring out how to change parts of a list in R.
+
+## We want to get rid of every data entry with a space at the end of the county name, as that makes the list more compatible with the county names from results12and16.
+
+colnames <- c("County", "Total Precincts", "Precincts Reporting", "Obama", "McCain", "Other")
+Election08 <- lapply(Election08, setNames, colnames)
+
+## Since the names of the columns changed when we used the lapply function, we set the names back to their original titles using a new lapply call.
+
+Election08 <- lapply(Election08, function (elem) {
+  elem$County <- as.character(elem$County)
+  elem$'Total Precincts' <- as.numeric(elem$'Total Precincts')
+  elem$'Precincts Reporting' <- as.numeric(elem$'Precincts Reporting')
+  elem$Obama <- as.numeric(elem$Obama)
+  elem$McCain <- as.numeric(elem$McCain)
+  elem$Other <- as.numeric(elem$Other)
+  return(elem)
+})
+
+## The first lapply function changed all of the data to a factor class. As represented in this function, the County column reverts back to its character class, and the other columns revert back to their numeric class. 
+
+## Using lapply has been quite useful thus far, and allows us to manipulate each element of the list quite efficiently.
+
+```
+
+The data has now been cleaned, and is ready for merging! The next few codes chunk list the specific calls used to put the election data into results12and16. We begin by taking the list of state names from the 2012 election data, since those states are exactly the same as the ones from 2008. We clear out the Alaska and Washington DC data, as our Election08 list does not contain significant values from either of those regions.
+
+The next step is making a function that adds a new column to each data frame in the list with the respective state of each county. We do this by taking our filtered state names and placing them to each respective state in the list.
+
+```{r}
+stateNames <- read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2012/stateNames.txt")
+
+## Reading the csv file.
+
+stateNames <- as.character(stateNames$states)
+stateNamesFiltered <- stateNames[stateNames != "alaska" & stateNames != "district-of-columbia"]
+
+## Cleaning the data.
+
+Election08 <- lapply(c(1:49), function(i) {
+  stateDF <- Election08[[i]]
+  stateDF$stateName <- rep(stateNamesFiltered[i], times = nrow(stateDF))
+  return(stateDF)
+})
+
+## The function itself. Adds the states from the 2012 file.
+```
+
+The actual merging process can begin.
+
+```{r}
+## Install plyr
+library(plyr)
+
+## The plyr package is useful for merging a list of data frames into a single data frame. We do this so we can merge this data frame to results12and16.
+
+Election08 <- ldply(Election08, data.frame)
+
+## We learned how to use the ldply function from http://stackoverflow.com/questions/2851327/convert-a-list-of-data-frames-into-one-data-frame
+
+ElectionResults <- merge(results12and16, Election08, by.x = c("state", "county"), by.y = c("stateName", "County"), all.x = TRUE, all.y = TRUE)
+
+## Merging the 2008 election data with the 2012/2016 results.
+
+```
+
