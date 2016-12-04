@@ -8,6 +8,7 @@ output: html_document
 ```{r packages}
 library(XML)
 library(ggplot2)
+library(plyr)
 ```
 
 ## 2016 Results
@@ -140,6 +141,7 @@ results2012$state <- as.character(results2012$state)
 
 ```{r load 2012 data, echo = FALSE}
 load("data/results2012.rda")
+elecData <- results2012
 ```
 
 ```{r}
@@ -159,26 +161,27 @@ All of the missing counties appear to be in Alaska, which resolves that particul
 #### Credit: Thorsen
 
 ```{r merge 12 and 16, eval = FALSE}
-results12and16 <- merge(x = results2012, y = results2016,
+elecData <- merge(x = results2012, y = results2016,
                         by.x = "countyFIPS", by.y = "combined_fips",
                         all.x = FALSE, all.y = FALSE)
 ```
 
 ```{r, echo = FALSE}
 load("data/results12and16.rda")
+elecData <- results12and16
 ```
 
 We merge the 2012 and 2016 data frames by FIPS codes, which allows us to circumvent issues of how state and county names are stored in each data frame. Because the 2012 voting data is, qualitatively speaking, a crucial predictor of the 2016 election results, we do not want to work with counties which are missing this important data point. As such, we use `all.(x/y) = FALSE` to look at only the intersection of the merge operation.
 
 ```{r}
-nrow(results12and16)
+nrow(elecData)
 ```
 
 The merged data frame has 3112 rows, exactly one less row than the 2012 results. This explains the one row discrepancy noted above: one county appears in the 2012 data that is missing in the 2016 data. So, while we have shown that only the Alaska results would be dropped from the 2016 data frame, we must determine what county is dropped from the 2012 data frame.
 
 ```{r}
-results2012[!(results2012$countyFIPS %in% results12and16$countyFIPS),]
-results12and16[results12and16$county == "Bedford",1:5]
+results2012[!(results2012$countyFIPS %in% elecData$countyFIPS),]
+elecData[elecData$county == "Bedford",1:5]
 ```
 
 Bedford City, Virginia is the missing row. However, Bedford, VA still appears in the merged results, and the city is a part of the county (https://en.wikipedia.org/wiki/Bedford,_Virginia). The county that is preserved in the data frame has a significantly larger number of votes than Bedford City, so the remaining county will be a sufficient analogue, particularly for mapping purposes.
@@ -255,24 +258,24 @@ geoInfo$county <- as.character(geoInfo$county)
 It is probable that most county names are shared between `geoInfo` and the current merged table.
 
 ```{r}
-mean(results12and16$county_name %in% geoInfo$county)
+mean(elecData$county_name %in% geoInfo$county)
 ```
 
 Just as we expected. However, many county names are duplicates across states. To account for this, we will paste together the county name and state name as new variables in each data frame, and see how this affects the percentage for which an intersection merge will retain the data.
 
 ```{r}
-results12and16$countyState <- paste(results12and16$county_name,", ",results12and16$state_abbr, sep="")
+elecData$countyState <- paste(elecData$county_name,", ",elecData$state_abbr, sep="")
 geoInfo$countyState <- paste(geoInfo$county,", ",geoInfo$state, sep="")
 
-mean(results12and16$countyState %in% geoInfo$countyState)
+mean(elecData$countyState %in% geoInfo$countyState)
 ```
 
 Using these variables will result in over 99% of the data successfully being merged. However, let us examine the counties in each data set for which their name cannot be found in the other data frame.
 
 ```{r}
-results12and16[!(results12and16$countyState %in% geoInfo$countyState),"countyState"]
+elecData[!(elecData$countyState %in% geoInfo$countyState),"countyState"]
 
-geoInfo[!(geoInfo$countyState %in% results12and16$countyState) 
+geoInfo[!(geoInfo$countyState %in% elecData$countyState) 
         & geoInfo$state != "AK","countyState"]
 ```
 
@@ -287,22 +290,385 @@ geoInfo[geoInfo$countyState == "Shannon County, SD","countyState"] <- "Oglala Co
 ```
 
 ```{r merge geo}
-results12and16Geo <- merge(x = results12and16, y = geoInfo,
+elecData <- merge(x = elecData, y = geoInfo,
                            by.x = "countyState", by.y = "countyState",
                            all.x = FALSE, all.y = FALSE)
 
-nrow(results12and16Geo)
+nrow(elecData)
 ```
 
 Another intersection merge, which leaves the data thus far almost entirely intact. Only two counties out of 3113 have been involuntarily dropped in the merge operations so far -- not bad!
 
+## 2010 Census Data
+#### Credit: Saraie
 
+This step of the project is to create a data frame that consists of data from six sources. Three sources contain election data, and the other three contain census data. In this segment of the project, I am putting data from Source #5 (2010 census) into the complete data frame.
 
-#### Session information
+First, I will load the data from the appropriate sources:
 
-```{r, echo = FALSE}
-sessionInfo()
+```{r}
+DataB01 = read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/census2010/B01003.csv")
+
+## Race information
+
+DataDP02 = read.csv("http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP02.csv")
+
+## Socio data
+
+DataDP03 = read.csv("http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP03.csv")
+
+## Economic data
+
+## It's important to note here that all of the data that has just been downloaded is put out in the form of a data frame.
 ```
+
+Now that all of the data is loaded, let's check to see if any of these data frames have missing values for any of the present variables. We will sapply each data frame to check for NA values at each row, and sum up all of the ones that are found.
+
+```{r}
+sum(sapply(DataB01, function(x) sum(is.na(x))))
+sum(sapply(DataDP02, function(x) sum(is.na(x))))
+sum(sapply(DataDP03, function(x) sum(is.na(x))))
+
+```
+
+All of them have an output of 0, so we don't have to worry about clearing NA values.
+
+Now we can begin looking at the different variables that we want to incorporate into the data frame.We'll first take a look at HD01_VD01 column in the B01 data frame to make 2 columns of the total estimated population by each county and the estimated white population. The process is that we will take the columns of the county names, signifiers of race, and population values of each race; we make a separate data frame from those columns (titled CensusDF), which will be the main data frame for putting in information.
+
+For reference, the variable names can be found at http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/B01_metadata.txt 
+
+```{r}
+sum(DataB01$POPGROUP.display.label == "Total population")
+
+## This function gives us a good sense of how many counties we're dealing with in total. We have 3217 counties. We're setting the standard equal to total population because every county has a listed total population in the data frame, so finding the sum gives us the total number of counties.
+
+CensusDF <- cbind.data.frame(DataB01$GEO.display.label, DataB01$POPGROUP.display.label, DataB01$HD01_VD01) 
+
+## Create a DF of all the columns we need. In this case, we just need the county names, the population labels, and the estimated total population. 
+
+colnames(CensusDF) <- c("County", "POPGROUP.display.label", "Estimated Population")
+
+## Changing the column names to make data editing easier.
+
+## At this point, we have a clean data frame that has all of the variables we want.
+
+```
+
+The issue with CensusDF at this point is that the data frame does not give us separate columns for the white population and for the total population. We do this by creating 2 separate data frames from CensusDF for the total population and the white population; we then combine the population number columns from each to make a data frame that has the county, the white population, and the total population.
+
+```{r}
+CensusDFtotal <- CensusDF[CensusDF$POPGROUP.display.label == "Total population", ]
+CensusDFwhite <- CensusDF[CensusDF$POPGROUP.display.label == "White alone", ]
+
+## Subsetting the data frames to only give values that display the total population of each county and the white population, which is what we want. 
+
+CensusDFtotal$POPGROUP.display.label <- NULL
+CensusDFwhite$POPGROUP.display.label <- NULL
+
+## We remove the POPGROUP.display.label column, as we do not need that information anymore to maintain the clarity of the new data frame.
+
+colnames(CensusDFwhite) <- c("County", "White Population")
+colnames(CensusDFtotal) <- c("County", "Total Population")
+
+## We change the column names here to make the data more clear.
+
+CensusDF <- merge(CensusDFwhite, CensusDFtotal, by = "County", all.x = TRUE, all.y = TRUE)
+
+## Merging the two data frames into one.
+```
+
+Now we have two columns done, with the estimated total population and the estimated white population. 
+We make our next few variable observations by merging columns from the B01, DP02, and DP03 data frames into CensusDF, which will give us a data frame with about 30-40 variables.
+
+Adding several extra columns from the DP02 table, representing different variables by county. We are specifically observing these variables from the 2010 census:
+
+- HC01_VC03 - Estimated # of households
+- HC03_VC04 - Percentage of family households (families)
+- HC03_VC06 - Percentage of family households (families) with children under 18 years
+- HC03_VC07 - Percentage of households with a married-couple family
+- HC03_VC08 - Percentage of married families with children under 18 years
+- HC03_VC09 - Percentage of families with a male householder and no wife
+- HC03_VC11 - Percentage of families with a female householder and no husband
+- HC03_VC13 - Percentage of nonfamily households
+- HC03_VC14 - Percentage of households with a lone householder
+- HC03_VC15 - Percentage of households with a lone householder at least 65 years old
+- HC03_VC17 - Percentage of households with one or more people under 18 years
+- HC03_VC18 - Percentage of households with one or more people over 65 years
+- HC01_VC20 - Estimated # of average household size
+- HC01_VC21 - Estimated # of average family size
+- HC03_VC36 - Percentage of people never married
+- HC03_VC37 - Percentage of people now married, except separated
+- HC03_VC38 - Percentage of people separated
+- HC03_VC94 - Percentage of people with bachelors or higher
+
+For reference, the variable names can be found at
+http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP02_metadata.txt
+
+```{r}
+CensusDF <- merge(CensusDF, DataDP02[ ,c("GEO.display.label", "HC01_VC03", "HC03_VC04","HC03_VC06", "HC03_VC07","HC03_VC08", "HC03_VC09", "HC03_VC11", "HC03_VC13", "HC03_VC14", "HC03_VC15", "HC03_VC17", "HC03_VC18", "HC01_VC20", "HC01_VC21", "HC03_VC36", "HC03_VC37", "HC03_VC38", "HC03_VC94")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
+
+## We merge CensusDF with all of the relevant DP02 columns, choosing to accept NA values that may be present to allow the data frames to merge.
+```
+
+Adding several extra columns from the DP03 table, representing different variables by county. We are specifically observing these variables from the 2010 census:
+
+- HC01_VC04 - Estimated # of population 16 years and over with an employment status
+- HC03_VC05 - Percentage of population in the labor force
+- HC01_VC06 - Estimated # of population in the civilian labor force
+- HC03_VC07 - Percentage of people employed in the civilian labor force
+- HC03_VC08 - Percentage of people unemployed in the civilian labor force
+- HC01_VC10 - Estimated # of population not in the labor force
+- HC03_VC13 - Percentage of population unemployed
+- HC03_VC16 - Percentage of females 16 and over in the labor force
+- HC01_VC17 - Estimated # of females 16 and over in the civilian labor force
+- HC03_VC18 - Percentage of females 16 and over employed in the civilian labor force
+- HC01_VC31 - Estimated # of people commuting to work by public transit (excluding taxi)
+- HC01_VC34 - Estimated # of people working at home
+- HC01_VC42 - Estimated # of employed civilians with service occupations
+- HC01_VC51 - Estimated # of employed civilians in construction
+- HC01_VC52 - Estiamted # of employed civilians in manufacturing
+- HC01_VC54 - Estimated # of employed civilians in retail trade
+- HC01_VC85 - Estimated amount of median household income
+
+For reference, the variable names can be found at
+http://www.stat.berkeley.edu/~nolan/data/voteProject/census2010/DP03_metadata.txt
+
+```{r}
+CensusDF <- merge(CensusDF, DataDP03[ ,c("GEO.display.label", "HC01_VC04", "HC03_VC05", "HC01_VC06", "HC03_VC07", "HC03_VC08", "HC01_VC10", "HC03_VC13", "HC03_VC16", "HC01_VC17", "HC03_VC18", "HC01_VC31", "HC01_VC34", "HC01_VC42", "HC01_VC51", "HC01_VC52", "HC01_VC54", "HC01_VC85")], by.x = "County", by.y = "GEO.display.label", all.x = TRUE, all.y = TRUE)
+
+## Same process as with the DataDP02 data frame, but with the DP03 data.
+```
+
+Now that the entire data frame has all of the data we want, we can begin changing the column names to give some context to each column. We use the colnames function:
+
+```{r}
+colnames(CensusDF) <- c("County", "whitePop", "totalPop", 
+                        "households", "hhFamily", "hhFamilyChildren",
+                        "hhMarried", "famWithChildren", "famSingleDad", "famSingleMom", 
+                        "hhNonFamily", "hhLoneHolder", "hhLoneSenior", "hhChildren",
+                        "hhSenior", "hhAvgSize", "famAvgSize", 
+                        "popSingle", "popMarriedSeparated", "popSeparated", "popOver16", 
+                        "popLaborForce", "civilianLF", "employedCLF", "unemployedCLF",
+                        "popNotLaborForce", "unemployed",
+                        "femLaborForce", "femCLF", "femEmployedCLF", "publicTransit",
+                        "workAtHome", "employed", 
+                        "employedServiceOccupations", "construction", "manufacturing", "retail")
+```
+
+I now begin the process of merging my data from CensusDF into the larger dataframe. To do this, I separate the state from the county in CensusDF$County, edit the names of the state in CensusDF so that they match up with the main data frame, "results12and16", and then merge the two data frames such that I get all of the info on one table.
+
+```{r}
+## Locale must be specified for strsplit; Not sure why this works
+## but recommended on https://victorfang.wordpress.com/2015/03/26/r-locale-error-super-weird/
+Sys.setlocale(locale="C")
+
+CensusDF$County <- as.character(CensusDF$County)
+list <- strsplit(CensusDF$County, ", ")
+
+## We change CensusDF$County to a character class so we can use strsplit to divide the column by county and state. The presence of a comma in each row makes this process very simple.
+
+df <- ldply(list)
+
+## We use plyr to make a data frame from our list, which we named "list". The substitute data frame is named "df".
+
+CensusDF <- cbind(df, CensusDF)
+
+## Combining the data frames.
+
+CensusDF$County <- NULL
+
+## Removing the original "County" column, which we do not need anymore.
+
+names(CensusDF)[names(CensusDF) == 'V1'] <- 'County'
+names(CensusDF)[names(CensusDF) == 'V2'] <- 'State'
+
+## Renaming the column names to make data more meaningful.
+
+CensusDF$State <- tolower(CensusDF$State)
+
+## Making the entire state column lowercase. The state column in results12and16 is lowercase, so we do this to make the final merge possible.
+
+CensusDF$State <- gsub(" ", "-", CensusDF$State)
+
+## Replacing every space with a dash. As before, we're just making the state columns from the difference data frames identical.
+
+elecDataCensus <- merge(elecData, CensusDF, 
+                        by.x = c("county_name", "state.x"), by.y = c("County", "State"), 
+                        all.x = FALSE, all.y = FALSE)
+
+## The final merge.
+```
+
+```{r}
+nrow(elecDataCensus) - nrow(elecData)
+```
+
+5 counties were lost in performing a merge on the intersection. This is not a number to be hugely concerned with, but it is worth seeing if we can preserve any of them that were lost due to nomenclature/string representation issues.
+
+```{r}
+elecData[!(elecData$county_name %in% CensusDF$County),"countyState"]
+```
+
+Oglala County is likely lost in the merge due to the reassignment used in the merging of geographic information. Kenedy County is not a major concern, as it is the fourth least populous county in the US . Loving County is also the least populous county in the US. These small data points are not a major concern, but Dona Ana County is the second largest county in New Mexico, which makes this county loss rather troubling.
+
+- https://en.wikipedia.org/wiki/Kenedy_County,_Texas
+- https://en.wikipedia.org/wiki/Loving_County,_Texas
+- https://en.wikipedia.org/wiki/Doña_Ana_County,_New_Mexico
+
+I have now successfully merged all of my data to the master data frame! We can now simplify our environment by removing intermediate results.
+
+```{r}
+elecData <- elecDataCensus
+rm(elecDataCensus)
+```
+
+
+## 2008 Results
+#### Credit: Saraie, Marroquin
+
+In this section of merging all of the data into the data frame, we are now looking at the 2008 election data. Bear in mind, the data can be accessed from two separate sources:
+
+- A google sheets page available online at https://docs.google.com/spreadsheets/d/1gLzjUFBk9gtAPfZ-bNZVfFC1zNhGkY_WI_VD_OXHUYI/edit#gid=0
+
+- A downloadable excel file available at
+http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2008.xlsx
+
+To begin this entire process, we install the "readxl" R package and write a function that will allow us to store multiple excel sheets into one list.
+
+```{r}
+## At this point, "readxl" has been manually installed.
+
+library(readxl) 
+
+## The standard requiring of the package.
+## The website https://blog.rstudio.org/2015/04/15/readxl-0-1-0/ was very useful in finding the right package to read the Excel data.
+
+LoadExcelSheets <- function(filename) {
+    sheets <- readxl::excel_sheets(filename)
+    x <- lapply(sheets, function(X) readxl::read_excel(filename,         sheet = X))
+    names(x) <- sheets
+    x
+}
+
+## This is an important function. It takes the file name and sets all of the sheets into a list, as seen by the lapply reading every excel sheet file into the variable "x". 
+
+## After this function, it is important to note that I have downloaded the excel file into my computer, so when I want to read it from the function, I am able to.
+
+## The website http://stackoverflow.com/questions/12945687/read-all-worksheets-in-an-excel-workbook-into-an-r-list-with-data-frames provided extremely useful information in storing multiiple sheets to a single list.
+
+Election08 <- LoadExcelSheets("data/countyvotes2008.xlsx")
+
+## We save the entire excel file into the R environment.
+```
+
+The next few steps are simply cleaning the data to be useful for the final merge. 
+
+```{r}
+Election08$`Total results`<- NULL
+
+## We get rid of the "Total Results" sheet from the list, as the data is not useful on a specific county basis.
+
+Election08$Alaska <- NULL
+
+## There is little to no Alaska data in this entire project, so we get rid of the Alaska data.
+
+Election08 <- lapply(Election08, function(x) { x[[7]] <- NULL; x })
+
+## This function is useful in that it gets rid of the seventh column in every data frame of the list; all of the seventh columns were blank, and only contained NA values. 
+
+Election08 <- lapply(Election08, as.data.frame)
+
+## For the sake of simplicity, every data frame in the list is confirmed in its class as a data frame.
+```
+
+Upon looking at the list, all of the counties have an extra space after their name. We begin the process of fixing that issue and refitting the data.
+
+```{r}
+Election08 <- lapply(Election08, function(d) {
+  as.data.frame(lapply(d, gsub, pattern = "[[:space:]](*$)", replacement = "")
+  )} )
+
+## This webpage (http://stackoverflow.com/questions/26853287/how-to-use-gsub-to-remove-parts-from-a-list-in-r) was quite helpful in figuring out how to change parts of a list in R.
+
+## We want to get rid of every data entry with a space at the end of the county name, as that makes the list more compatible with the county names from results12and16.
+
+colnames <- c("County", "Total Precincts", "Precincts Reporting", "Obama", "McCain", "Other")
+Election08 <- lapply(Election08, setNames, colnames)
+
+## Since the names of the columns changed when we used the lapply function, we set the names back to their original titles using a new lapply call.
+
+Election08 <- lapply(Election08, function (elem) {
+  elem$County <- as.character(elem$County)
+  elem$'Total Precincts' <- numCoercer(elem$'Total Precincts')
+  elem$'Precincts Reporting' <- numCoercer(elem$'Precincts Reporting')
+  elem$Obama <- numCoercer(elem$Obama)
+  elem$McCain <- numCoercer(elem$McCain)
+  elem$Other <- numCoercer(elem$Other)
+  return(elem)
+})
+
+## The first lapply function changed all of the data to a factor class. As represented in this function, the County column reverts back to its character class, and the other columns revert back to their numeric class. 
+
+## Using lapply has been quite useful thus far, and allows us to manipulate each element of the list quite efficiently.
+
+## We use the numCoercer function previously established from the 2012 and 2016 data to get the correct values from the columns with numeric values.
+
+```
+
+The data has now been cleaned, and is ready for merging! The next few codes chunk list the specific calls used to put the election data into results12and16. We begin by taking the list of state names from the 2012 election data, since those states are exactly the same as the ones from 2008. We clear out the Alaska and Washington DC data, as our Election08 list does not contain significant values from either of those regions.
+
+The next step is making a function that adds a new column to each data frame in the list with the respective state of each county. We do this by taking our filtered state names and placing them to each respective state in the list.
+
+```{r}
+stateNames <- read.csv("http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2012/stateNames.txt")
+
+## Reading the csv file.
+
+stateNames <- as.character(stateNames$states)
+stateNamesFiltered <- stateNames[stateNames != "alaska" & stateNames != "district-of-columbia"]
+
+## Cleaning the data.
+
+Election08 <- lapply(c(1:49), function(i) {
+  stateDF <- Election08[[i]]
+  stateDF$stateName <- rep(stateNamesFiltered[i], times = nrow(stateDF))
+  return(stateDF)
+})
+
+## The function itself. Adds the states from the 2012 file.
+```
+
+The actual merging process can begin.
+
+```{r}
+
+## The plyr package is useful for merging a list of data frames into a single data frame. We do this so we can merge this data frame to results12and16.
+
+Election08 <- ldply(Election08, data.frame)
+
+## We learned how to use the ldply function from http://stackoverflow.com/questions/2851327/convert-a-list-of-data-frames-into-one-data-frame
+
+elecData1 <- merge(elecData, Election08, by.x = c("state.x", "county.x"), by.y = c("stateName", "County"), all.x = TRUE, all.y = TRUE)
+
+## Merging the 2008 election data with the 2012/2016 results.
+
+```
+
+
+
+
+
+
+## Cleaning Up Results
+#### Credit: Thorsen
+
+Along the process of merging the data sources, a large amount of extraneous and redundant columns have slowly amassed, primarily in terms of state and county information. Additionally, naming conventions across data sources vary greatly.
+
+```{r}
+names(elecData)
+```
+
+To simplify operations in the second half of this project, it will be useful to tidy up our primary data frame. This will be accomplished by (a) dropping redundant variables, and (b) renaming the columns of our data frame as needed.
 
 #### Acknowledgements 
 
@@ -314,3 +680,9 @@ sessionInfo()
 - 2012 results originally available from http://www.politico.com/2012-election/map/#/President/2012/
 
 - `numCoercer` utility function based on http://stackoverflow.com/questions/1523126/how-to-read-data-when-some-numbers-contain-commas-as-thousand-separator
+
+#### Session information
+
+```{r, echo = FALSE}
+sessionInfo()
+```
