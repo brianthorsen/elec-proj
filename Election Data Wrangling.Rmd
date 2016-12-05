@@ -7,9 +7,25 @@ output: html_document
 
 ```{r packages}
 library(XML)
-library(ggplot2)
 library(plyr)
 ```
+
+## Introduction
+
+In this report, we seek to obtain information from a variety of sources which pertain to voting and demographic information at the county level in the United States. Our goal is to obtain features which can be used to model and develop predictors for the 2016 election results for each U.S. county, and assess how successful our predictors are.
+
+To accomplish this task, we will collect the following information:
+
+- Popular vote from the 2016, 2012, 2008, and 2004 elections
+
+- Various statistics from the 2010 Census data
+
+- Geographic information on each county
+
+
+These features enable us to develop metrics of similarity between counties. For instance, a nearest-neighbor classifier can look at not only geographical proximity, but similarities in workforce composition, median household income, and voting tendencies in prior elections in order to predict a county's vote in the 2016 election.
+
+Data in this project is available in a variety of formats. Each data source, therefore, must be prepared and examined individually before combination into a final product.
 
 ## 2016 Results
 #### Credit: Thorsen
@@ -845,7 +861,7 @@ elecData <- elecData[,c("county_name", "state_abbr",
                          "votes_dem", "votes_gop", ## 2016 results
                          "obamaVotes2012", "romneyVotes2012", ## 2012 results
                          "Obama", "McCain", ## 2008 results
-                         "bushVote", "kerryVote", ## 2004 results
+                         "kerryVote", "bushVote", ## 2004 results
                          censusCols)]
 
 ## Reassign names for simplicity
@@ -887,18 +903,119 @@ elecData[elecData$county %in% c("Bedford County", "Fairfax city",
          c("county", "state", "dem04", "gop04", "totalPop")]
 ```
 
-Looking at the 2004 results for the duplicate counties shows some obvious incongruities. The vote count for one year for each county is either absurdly low or greater than the population of the county.
+Looking at the 2004 results for the duplicate counties shows some obvious incongruities. The vote count for one year for each county is either absurdly low or greater than the population of the county. Selective filtering by index will remove the rows which contain these incongruous and duplicate results. Index numbers are obtained through manual inspection.
+
+```{r}
+elecData <- elecData[-c(166, 888, 947, 2394),]
+
+elecData[elecData$county %in% c("Bedford County", "Fairfax city", 
+                                "Franklin city", "Richmond city", 
+                                "Roanoke city")
+         & elecData$state == "VA",
+         c("county", "state", "dem04", "gop04", "totalPop")]
+```
+
+It is not a simple matter to determine which row is incorrect for Roanoke City. To do so, we will compare the 2004 results to the results for other years.
+
+```{r}
+elecData[elecData$county == "Roanoke city" & elecData$state == "VA", c(1:10)]
+```
+
+Both outcomes seem reasonable. Rather than risk representing the data incorrectly, we will instead drop one of the rows from the data frame and set the 2004 election results for the other to `NA`.
+
+```{r}
+elecData <- elecData[!(elecData$county == "Roanoke city" & elecData$gop04 == 30596),]
+elecData[elecData$county == "Roanoke city" & elecData$state == "VA",
+         c("dem04", "gop04")] <- NA
+
+elecData[elecData$county == "Roanoke city" & elecData$state == "VA", c(1:10)]
+```
+
+At this point, the data frame appears to be complete! Let us look at the information contained in the data frame to verify it seems reasonable.
+
+```{r}
+dim(elecData)
+
+## Confirm that no duplicate rows remain in the data
+length(findDupes(elecData$county, elecData$state)) == 0
+
+## View what states are represented in data
+sort(unique(elecData$state))
+
+"DC" %in% elecData$state
+```
+
+The District of Columbia has been dropped from the data, but this is only one county out of over 3,000. We are not interested in calculating electoral results, but instead focusing on county level results, so a single data point does not greatly affect our progress later on.
+
+Let us examine how many observations are missing for the entire data frame.
+
+```{r}
+missingCount <- sum(sapply(elecData, function(x) {sum(is.na(x))}))
+missingCount
+missingCount / prod(dim(elecData)) ## Rows * columns
+```
+
+Slightly more than 0.1% of the data is missing for the counties we retained in the data frame -- not bad at all!
+
+For some simple verifications of results, let's examine the national popular vote results for each election year to confirm that the data seem reasonable.
+
+```{r}
+sapply(elecData[c(3:10)], sum, na.rm = TRUE) / (10 ^ 6) 
+## Sum of popular vote in millions, by party, by year
+```
+
+The total votes in this data frame appear to be reasonable; for instance, Clinton holds a slight lead over Trump for the 2016 data, and in all other outcomes the winning party also won the popular vote.
+
+#### Saving the results
+
+At this point, we will save the results of our data frame to an .Rda file for later usage. 
+
+```{r, eval = FALSE}
+save(elecData, file = "elecData.rda")
+```
+
+This file is included in our submission, along with intermediate files used to simplify the knitting process. All code needed to recreate all such files is provided in this .Rmd file, but some code chunks are set to simply display their code rather than evaluate. For these code chunks, a hidden code chunk appears below in which an intermediate .Rda file is loaded.
+
+## Conclusion
+
+In preparing our data for later analysis, several issues arose which had to be addressed. Among these were the proper handling of data being represented in the incorrect types, such as numeric data appearing as strings with added characters. Some states were missing from the initial data frames provided: namely, Alaska was not present in the 2012 data, and Virginia and Hawaii were not present in the 2004 data. For the latter two, we were able to obtain the results through parsing data sources available elsewhere on the internet.
+
+A particularly critical recurring issue was the handling of merges across the different data sources. To merge by county and state pairs, it was necessary to obtain such information from every data source, which was often represented in different ways. In one instance, the use of FIPS codes enabled seamless merging of the data, whereas other merges required string manipulations to facilitate the matching of values. Additionally, an issue arose in the matter of missing values and values which did not have a directly translatable equivalent in the data frame to be merged. To address these concerns, we examined which values would be lost in the merge along the intersection of both data frames, and assessed the possibility of manual reassignment of names. For counties in which manual reassignment was not a simple task, the next step was to determine how important the counties were, qualitatively speaking. For instance, it was a much easier decision to drop the least populous counties in New Mexico from the results than to drop Manhattan or Brooklyn, NY from the results.
+
+Depending on the severity of information loss, merging operations occurred in one of two ways. If the data to be lost did not seem of high importance (e.g., low population size), an intersection merge was performed to preserve complete data and avoid the cropping up of `NA` values. If the counties were more important, it was preferable to preserve some information for these counties in a left join merge, and at least retain most of the data on such counties. This is admittedly a qualitative and subjective process, but our criteria is spelled out in all cases to allow the reader to view the process we chose.
+
+Ultimately, we were able to obtain nearly complete data for 3,104 counties in the United States. Our largest single data source, the `CensusDF`, contains 3,217 rows, which suggests that on the whole, we retained a vast majority of the counties. This will enable us to obtain robust, meaningful conclusions in our later analysis of the 2016 election results.
+
+
 
 #### Acknowledgements 
 
-- Data hosting courtesy of Professor Deborah Nolan
+- Data hosting courtesy of Professor Deborah Nolan, University of California Berkeley, Department of Statistics
 
 - 2016 results originally available from https://github.com/tonmcg/County_Level_Election_Results_12-
 16/blob/master/2016_US_County_Level_Presidential_Results.csv
 
-- 2012 results originally available from http://www.politico.com/2012-election/map/#/President/2012/
+- 2012 results originally available from *Politico*: http://www.politico.com/2012-election/map/#/President/2012/
+
+- 2008 results originally available from *The Guardian*: https://www.theguardian.com/news/datablog/2009/mar/02/us-elections-2008
+
+- 2004 results available from Deborah Nolan (UC Berkeley): http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2004.txt
+
+- 2010 Census data available from http://factfinder2.census.gov/faces/nav/jsf/pages/searchresults.xhtml?refresh=t
+
+- Geographic information available from Deborah Nolan: http://www.stat.berkeley.edu/users/nolan/data/voteProject/counties.gml
 
 - `numCoercer` utility function based on http://stackoverflow.com/questions/1523126/how-to-read-data-when-some-numbers-contain-commas-as-thousand-separator
+
+- R Core Team (2016). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+- Duncan Temple Lang and the CRAN team (2016). RCurl: General Network (HTTP/FTP/...) Client Interface for R. R package version 1.95-4.8. https://CRAN.R-project.org/package=RCurl
+
+- Duncan Temple Lang and the CRAN Team (2016). XML: Tools for Parsing and Generating XML Within R and S-Plus. R package version 3.98-1.4. https://CRAN.R-project.org/package=XML
+
+- Hadley Wickham (2011). The Split-Apply-Combine Strategy for Data Analysis. Journal of Statistical Software, 40(1), 1-29. URL http://www.jstatsoft.org/v40/i01/.
+
+- Hadley Wickham (2016). readxl: Read Excel Files. R package version 0.1.1. https://CRAN.R-project.org/package=readxl
 
 #### Session information
 
