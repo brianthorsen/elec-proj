@@ -845,15 +845,16 @@ To simplify operations in the second half of this project, it will be useful to 
 
 ```{r}
 ## Names are copied from code used in obtaining census info
-censusCols <- c("whitePop", "totalPop", "households", "hhFamily", "hhFamilyChildren",
+censusCols <- c("whitePop", "totalPop", 
+                "households", "hhFamily", "hhFamilyChildren",
                 "hhMarried", "famWithChildren", "famSingleDad", "famSingleMom", 
                 "hhNonFamily", "hhLoneHolder", "hhLoneSenior", "hhChildren",
                 "hhSenior", "hhAvgSize", "famAvgSize", 
-                "popSingle", "popMarriedSeparated", "popSeparated", "popOver16", 
-                "popLaborForce", "civilianLF", "employedCLF", "unemployedCLF",
+                "popSingle", "popMarriedSeparated", "popSeparated", "popBachelors",
+                "popOver16", "popLaborForce", "civilianLF", "employedCLF", "unemployedCLF",
                 "popNotLaborForce", "unemployed",
-                "femLaborForce", "femCLF", "femEmployedCLF", "publicTransit",
-                "workAtHome", "employed", 
+                "femLaborForce", "femCLF", "femEmployedCLF",
+                "publicTransit", "workAtHome",
                 "employedServiceOccupations", "construction", "manufacturing", "retail",
                 "medianIncome")
 
