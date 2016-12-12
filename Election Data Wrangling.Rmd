@@ -675,6 +675,8 @@ elecData <- merge(elecData, Election08, by.x = c("state.x", "county.x"), by.y = 
 ## 2004 Results
 #### Credit: Amidi-Abraham
 
+To begin analysis of the 2004 election data, the variables will be altered and organized for ease of access in future steps.
+
 ```{r}
 # Read data into R
 pres_2004 = read.table(file = 'http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2004.txt', header = TRUE)
@@ -689,8 +691,20 @@ pres_2004$countyName = sapply(strsplit(pres_2004$countyName, split = ','), "[[",
 pres_2004 = pres_2004[order(pres_2004$stateName), ]
 ```
 
+After counting the number of states present in the data, it is quick to notice the lack of certian states, notably Alaska, Hawaii, and Virginia
+
 ```{r}
-# Extracting Virginia Data from Wikipedia
+state_names = read.table(url('http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2012/stateNames.txt'), header = TRUE)
+state_names = as.character(state_names$states)
+state_names = gsub('-', ' ', state_names)
+
+setdiff(state_names, unique(pres_2004$stateName))
+```
+
+We will extract the Virginia data from Wikipedia, as introduced in lecture. Virginia is a particular case where many cities are independent of the counties they are located in. Wikipedia mentions "County or City" when labeling. Some of cities are renamed to better match the master data frame.
+
+```{r}
+# Extracting Virginia Data from Wikipedia (Lecture 35, pgs. 11-14)
 library(XML)
 library(RCurl)
 # Identify URL
@@ -732,6 +746,8 @@ countyDF$countyName[countyDF$countyName == "Richmond"] = "Richmond City"
 countyDF$countyName[countyDF$countyName == "Roanoke"] = "Roanoke City"
 ```
 
+Repeat process for Hawaii. The "Overseas" data from Wikipedia is removed since it is not contained in any of the other election years.
+
 ```{r}
 # Extracting Hawaii Data from Wikipedia
 # Identify URL
@@ -770,6 +786,8 @@ colnames(hawaiiDF) <- c("countyName", "kerryVote", "bushVote", "stateName")
 countyDF = rbind.data.frame(hawaiiDF, countyDF)
 ```
 
+Virginia and Hawaii are combined with the rest of the United States to form a set with 49 states plus Washington D.C.
+
 ```{r}
 # Combine Virginia and Hawaii data with rest of country
 pres_2004 = rbind.data.frame(pres_2004, countyDF)
@@ -778,6 +796,7 @@ pres_2004$countyName = gsub("(^|[[:space:]])([[:alpha:]])", "\\1\\U\\2", pres_20
 # Alphabetize states
 pres_2004 = pres_2004[order(pres_2004$stateName), ]
 ```
+
 
 ## Merging 2004 Results
 #### Credit: Thorsen
