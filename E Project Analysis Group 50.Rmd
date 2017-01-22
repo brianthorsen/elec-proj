@@ -1,0 +1,657 @@
+---
+title: "Election Visualizations"
+author: "Brian Thorsen"
+date: "12/6/2016"
+output: html_document
+---
+
+```{r, echo = FALSE}
+## Set to false to hide all code chunks
+reportMode <- FALSE
+```
+
+```{r, echo = reportMode}
+## Data has been slightly modified; geographic information is now added in correct form.
+load("elecDataCorrected.rda")
+```
+
+
+## Introduction
+#### Credit: Ryan Saraie, Ryan Haeri
+***
+
+In this study, we initiate the process of observing data from geographic sources, four elections, and the 2010 census to observe the results and unique aspects of the 2016 presidential election. With president-elect Donald Trump's victory remaining at the center of the United States news cycle, it is important to understand the basis of his victory and analyze what factors led to his success. To do so, we compare a wide variety of variables that may have indicated how well Mr. Trump did in certain counties of the United States. It is important to note that we are not trying to predict the 2016 election; rather, we are looking for predictors that influenced it, specifically ones that strategists and data scientists may have unaccounted for. We base our results from our own data frame, sourced from a variety of data sets that we compiled to provide a simple base for making maps and statistical tests. In our analysis, we utilize visual and computational tools to understand what patterns existed that led to a Trump presidency.
+	
+	From the data frame, we create multiple plots and maps that highlight voter behavior by each state. These directly visual representations show how the frequency of specific votes may have differed by county; these changes are crucial in comparing previous elections to the 2016 election, and give us a sense for what past factors were at play to influence the final election results. While the images give plenty of insight into how the 2016 election turned out, we ran a few tests to give specific predictions for what the results could be. Our first test was to create a classification tree to determine how the 2016 election would conclude in voting. With this testing method, we cross-validated our data before conducting the test as a means of obtaining more accurate results. In addition, we conducted a K Nearest Neighbor classifier in the data frame to predict the change in 2012 to 2016 election results. With the labeling parameter for the data set at if the majority party per county changed from 2012 to 2016, we compared a sample of train data with test data to make a prediction. While all of these methods of analysis may not be fully accurate models for the 2016 election, they served as informationally useful tools for understanding how certain numerical factors affected this country.
+
+
+
+
+
+
+## Data Overview and Description
+#### Credit: Brian Thorsen
+***
+
+The data for which we will be conducting our analysis contains information from the 2016 presidential election, reported at the county level in terms of popular vote count, as well as information for the previous three elections. Additionally, geographic information on counties as well as information from the 2010 US Census is included, such as workforce demographics, family composition, and median income for all counties. These various forms of information constitute features from which we can build predictors for the 2016 election results.
+
+Data was obtained from a variety of sources, but primarily hosted online through Professor Deborah Nolan's website. As these sources had to be merged together, information loss arose due to counties missing from single data sources, as well as heterogeneity in county names which prevented seamless merges.
+
+In preparing our data for later analysis, several issues arose which had to be addressed. Among these were the proper handling of data being represented in the incorrect types, such as numeric data appearing as strings with added characters. Some states were missing from the initial data frames provided: namely, Alaska was not present in the 2012 data, and Virginia and Hawaii were not present in the 2004 data. For the latter two, we were able to obtain the results through parsing data sources available elsewhere on the internet.
+
+A particularly critical recurring issue was the handling of merges across the different data sources. To merge by county and state pairs, it was necessary to obtain such information from every data source, which was often represented in different ways. In one instance, the use of FIPS codes enabled seamless merging of the data, whereas other merges required string manipulations to facilitate the matching of values. Additionally, an issue arose in the matter of missing values and values which did not have a directly translatable equivalent in the data frame to be merged. To address these concerns, we examined which values would be lost in the merge along the intersection of both data frames, and assessed the possibility of manual reassignment of names. For counties in which manual reassignment was not a simple task, the next step was to determine how important the counties were, qualitatively speaking. For instance, it was a much easier decision to drop the least populous counties in New Mexico from the results than to drop Manhattan or Brooklyn, NY from the results.
+
+Depending on the severity of information loss, merging operations occurred in one of two ways. If the data to be lost did not seem of high importance (e.g., low population size), an intersection merge was performed to preserve complete data and avoid the cropping up of missing values. If the counties were more important, it was preferable to preserve some information for these counties in a left join merge, and at least retain most of the data on such counties. This is admittedly a qualitative and subjective process, but our criteria is spelled out in all cases to allow the reader to view the process we chose.
+
+Ultimately, we were able to obtain nearly complete data for 3,102 counties in the United States. This will enable us to obtain robust, meaningful conclusions in our analysis.
+
+
+#### Addressing heterogeneity of units
+
+One potential issue that arises in the use of a *K* nearest neighbor predictor is the heterogeneity of units for the different columns of data. For instance, the voting information is reported in orders of magnitude ranging from the order of 10^7 for geographic information (latitude and longitude) to values between 0 and 100 for the census data. Counties which have similar demographic information will not be considered nearest neighbors with these units, as the geographic distance is by far the largest contributor to a calculation involving Euclidean distances.
+
+To address this concern, we normalize the features of the data by converting to standard units. By doing so, all features are weighed more or less equally in terms of determining the nearest neighbors of a county.
+
+Note that this issue is not as relevant for classification trees, which create bifurcating decisions based on numeric thresholds for quantitative data. These thresholds are largely independent of scale.
+
+```{r, echo = reportMode}
+## Create copy
+elecDataNorm <- elecData 
+
+## Convert to standard units
+elecDataNorm[,c(3:49)] <- apply(elecData[,c(3:49)],2,scale) 
+
+```
+
+
+
+
+
+
+
+
+## Election Result Visualization
+#### Credit: Brian Thorsen, edited by Ryan Haeri
+***
+
+```{r, echo = reportMode}
+library(ggplot2)
+library(ggmap)
+library(maps)
+```
+
+The first step in understanding the 2016 election results is to visually examine how the country voted. Three different maps plotting the election results in different ways appear below, as each map conveys different but equally important information about the election.
+
+To plot election results, we sought an alternative approach to the standard "painting" of each geographic region according to its voting patterns. To do so misrepresents the geographic clustering of the US population; for instance, the sparsely populated Montana is visually interpreted as more important than the densely populated Bay Area. To address these issues, we superimpose circles to convey popular vote information, where each circle's area is proportional to the number of votes being represented in the circle.
+
+The first plot we will look at provides insight to how the election was decided at the state level, by plotting the marginal vote county in favor of each candidate for each county.
+
+```{r, echo = reportMode}
+## Filter out Hawaii for plotting purposes
+elecDataNoHI <- elecData[elecData$state != "HI",]
+
+## Split data by outcome to enable differentiated coloration
+demWon16 <-  elecDataNoHI[elecDataNoHI$dem16 > elecDataNoHI$gop16,]
+gopWon16 <- elecDataNoHI[elecDataNoHI$gop16 > elecDataNoHI$dem16,]
+```
+
+
+```{r, fig.width = 12, fig.height = 7.5, echo = reportMode}
+## Little bit of info: hexadecimal color codes for the party colors
+## come from examining the logo found on each candidate's website 
+## (code determined with a color selector app).
+
+ggplot(data = demWon16, 
+       mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6))) + ## Coordinate rescaling needed
+  
+  ## Provided gray base US map to be layered onto
+  borders("county", fill = "gray82", colour = "gray90") +
+  borders("state", colour = "white", size = 0.85) +
+  
+  geom_point(aes(size = dem16 - gop16), alpha = 0.72, color = "#0057b8") +
+  geom_point(data = gopWon16,
+             mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                           size = gop16 - dem16), alpha = 0.72, color = "#bc3523") +
+  
+  ## Set title, legend, etc.
+  scale_size(range = c(0, 7.5),
+             breaks = c(100, 1000, 10000, 100000, 1000000),
+             labels = c("100", "1,000", "10,000", "100,000", "1,000,000"),
+             name = "County Vote Margin",
+             guide = guide_legend(title.position = "top",
+                                  override.aes = list(color = "gray30"))) +
+  ggtitle("2016 U.S. Presidential Election: Popular Vote Margins") +
+  
+  ## Eliminate unwanted plot elements, move legend
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+        axis.text.y=element_blank(),axis.ticks=element_blank(),
+        axis.title.x=element_blank(),axis.title.y=element_blank(),
+        panel.background=element_blank(),panel.border=element_blank(),
+        panel.grid.major=element_blank(),panel.grid.minor=element_blank(),
+        plot.background=element_blank(),
+        legend.position = "bottom", legend.box = "horizontal")
+
+```
+
+Examining an individual state on this map provides the information about how close the race was at the state level, and at a glance provides information of which candidate won each state (except for states with some counties favoring Clinton and others favoring Trump). However, the marginal vote gain for each candidate obscures how close a race might have been in a given region; a populous county with an extremely close vote appears as a small circle on the map.
+
+The following map examines the total vote at the county level, with each county colored according to how large the margin was in favor of each candidate.
+
+```{r, fig.width = 12, fig.height = 7.5, echo = reportMode}
+ggplot(data = elecDataNoHI, 
+       mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6))) +
+  borders("county", fill = "gray82", colour = "gray90") +
+  borders("state", colour = "white", size = 0.85) +
+  geom_point(aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                 size = gop16 + dem16,
+                 color = gop16 / (gop16 + dem16)), alpha = 0.95) +
+  scale_size(range = c(0, 15),
+             breaks = c(200, 2000, 20000, 200000, 2000000),
+             labels = c("200", "2,000", "20,000", "200,000", "2,000,000"),
+             name = "Total County Vote",
+             guide = guide_legend(title.position = "top",
+                                  override.aes = list(color = "gray30"))) +
+  scale_color_gradient2(low = "#0057b8", mid = "lightyellow", high = "#bc3523",
+                        midpoint = 0.5,
+                        name = "% Trump Vote",
+                        guide = guide_colorbar(title.position = "top")) +
+  ggtitle("2016 U.S. Presidential Election: Popular Vote Count") +
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+        axis.text.y=element_blank(),axis.ticks=element_blank(),
+        axis.title.x=element_blank(),axis.title.y=element_blank(),
+        panel.background=element_blank(),panel.border=element_blank(),
+        panel.grid.major=element_blank(),panel.grid.minor=element_blank(),
+        plot.background=element_blank(),
+        legend.position = "bottom", legend.box = "horizontal")
+```
+
+This map provides better indication of how close the race was in the swing states, particularly in Florida. It also shows that some larger cities in the Midwest actually were much closer races than the marginal vote might indicate (this also explains the pockets of blue in intensely conservative areas in Texas, for instance). For counties in which the race was not close, such as Los Angeles and Alameda County, this type of information is preserved between the two maps; that being said, these are not the counties we are particularly interested in.
+
+The final map highlights the counties which flipped between 2012 and 2016 in favor of the other party. These counties are the ones of interest for the sake of predicting the change in voting patterns from 2012 to 2016.
+
+
+```{r, echo = reportMode}
+## Create individual results about staying/flipping to allow differentiated coloration
+
+demFlip <- elecDataNoHI[elecDataNoHI$dem16 > elecDataNoHI$gop16 &
+                        elecDataNoHI$dem12 < elecDataNoHI$gop12 , ]
+
+gopFlip <- elecDataNoHI[elecDataNoHI$dem16 < elecDataNoHI$gop16 &
+                        elecDataNoHI$dem12 > elecDataNoHI$gop12 , ]
+
+demStay <- elecDataNoHI[elecDataNoHI$dem16 > elecDataNoHI$gop16 &
+                        elecDataNoHI$dem12 > elecDataNoHI$gop12 , ]
+
+gopStay <- elecDataNoHI[elecDataNoHI$dem16 < elecDataNoHI$gop16 &
+                        elecDataNoHI$dem12 < elecDataNoHI$gop12 , ]
+```
+
+```{r, echo = reportMode, fig.width = 12, fig.height = 7.5}
+ggplot(data = elecDataNoHI) +
+  borders("county", fill = "gray82", colour = "gray90") +
+  borders("state", colour = "white", size = 0.85) +
+  
+  ## Plot each case with a different color
+  geom_point(data = demFlip,
+             mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                           size = dem16 - gop16), alpha = 0.95, color = "#0057b8") +
+  geom_point(data = gopFlip,
+             mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                           size = gop16 - dem16), alpha = 0.95, color = "#bc3523") +
+  geom_point(data = demStay,
+             mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                           size = dem16 - gop16), alpha = 0.55, color = "lightskyblue") +
+  geom_point(data = gopStay,
+             mapping = aes(x = latitude / (10 ^ 6), y = longitude / (10 ^ 6),
+                           size = gop16 - dem16), alpha = 0.55, color = "lightcoral") +
+  
+  scale_size(range = c(0, 15),
+             breaks = c(100, 1000, 10000, 100000, 1000000),
+             labels = c("100", "1,000", "10,000", "100,000", "1,000,000"),
+             name = "County Vote Margin",
+             guide = guide_legend(title.position = "top",
+                                  override.aes = list(color = "gray30"))) + 
+  ggtitle("Flipped Counties") +
+  theme(axis.line=element_blank(),axis.text.x=element_blank(),
+        axis.text.y=element_blank(),axis.ticks=element_blank(),
+        axis.title.x=element_blank(),axis.title.y=element_blank(),
+        panel.background=element_blank(),panel.border=element_blank(),
+        panel.grid.major=element_blank(),panel.grid.minor=element_blank(),
+        plot.background=element_blank(),
+        legend.position = "bottom", legend.box = "horizontal")
+
+```
+
+It is clear from this map that the large number of counties which flipped to the GOP in the Midwest are of special importance. Most predictors prior to the election incorrectly predicted Wisconsin and Michigan as going to Clinton, and these two states made the largest difference in deciding Trump's victory. Additionally, few counties flipped in favor of Clinton; Orange County, CA is the most prominent example of this flip, and this occurred in a solidly blue state.
+
+One possible concern regarding the predictors is whether or not sufficient data points are available to predict a Democratic flip. For a nearest neighbor analysis, it is quite possible that a *K* value around 10 might prohibit any possibility of predicting a Democratic flip (if there are never enough similar counties that flipped this way to cast the majority of "votes" for a test county). As we see later in the results, this issue is fully realized; the ideal K value for classification success rates, *K* = 8, leads to zero counties being predicted as flipping Democratic.
+
+
+
+
+
+
+##2016 Election Result Predictor
+#### Credit: Ryan Haeri, edited by Brian Thorsen
+***
+
+In this report, our aim was to build a classification tree based off of the 2016 election results that predicted how counties voted in comparison to each other based off of similar features. We define "similar county" by comparing counties that display relatively similar demographic features, population features by race and age, labor force size, unemployment, family characteristics, work force population by race and age, location, income, etc. Our goal was to build a predictor based off of these features in order to predict how counties with similar features voted.
+
+The 2016 election was different than all recent elections in the sense that counties that traditionally voted Democrat voted Republican. Our classification tree will also display past elections and how 2016 voted differently based off of certain county features. 
+
+```{r}
+load("elecDataCorrected.rda")
+library(ggplot2)
+library(rpart)
+library(rpart.plot)
+```
+
+In order to build our predictor, we set aside a test set to be used as our predictor during the predictor creation step. We used two-thirds of our data to build a predictor based off of the features in our data frame, and the test set's purpose was to serve as a set of data that represented unknown future voter turnouts. 
+
+First, we set a random seed and take a sample of one-thirds of the election data without replacement so we don't have any repeated counties. We then created a new column that contains the results of those respective counties, which will be what we are testing our predictor on at the end. 
+
+In order to make a test and training set, we subsetted a random sample of our indices from the original election data frame in order to obtain a random sample of two-thirds of the rows for the training set and a random sample of one-third of the rows for the test set, excluding the information we will not be examining (county and state information, along with democratic and republican voting information). We are excluding these elements from our test and training set because these are intrinsically related to the class of our data, containing information directly related to the class of our data.
+
+```{r}
+set.seed(12341234)
+numRow = nrow(elecData)
+dataPartition = sample(numRow, size = (1/3)*numRow, replace = FALSE)
+
+
+elecData$Win =  factor(((elecData$dem16 > elecData$gop16)+0),
+                         levels = c(0,1), labels = c("gop", "dem"))
+
+elecTest = elecData[dataPartition, -c(1:4)]
+elecTrain = elecData[-dataPartition, -c(1:4)]
+```
+
+In order to perform cross-validation, we had to partition our data into folds whose intersection is empty. They must be non-overlapping because if we have repeated information in any one row, then the predictor would give abnormally accurate results. Therefore, we permuted the indices in order to make non-overlapping folds, and created a matrix with 11 folds containing the permuted row indices.
+
+```{r}
+set.seed(12341234)
+nrowTrain = nrow(elecTrain)
+permutation = sample(nrowTrain, replace = FALSE)
+folds = matrix(permutation, ncol = 11)
+```
+
+We wanted to build a predictor based off of 10/11 of `elecTrain` and predict the election results based off of 1/11 of the data. We wanted to use each complexity parameter in the process of building our tree, so we could select a tuning parameter based off of which one minimized our misclassification rate. 
+
+We used a double for loop to make our predictions over the folds with our complexity parameters. When building our predictor, we hid the column that contained the election results in order to later compare the results of our predictor to our true value. 
+
+We then aligned our partitions with the true values in order to see if our predictor accurately predicted the true election results. Each column represents a different complexity parameter, and we applied a function to each complexity parameter that provids the rate of accuracy. 
+
+```{r}
+cps = c(seq(0.001, 0.01, by = 0.003),
+       seq(0.01, 0.1, by = 0.03))
+
+predictionMatrix = matrix(nrow = nrowTrain, ncol = length(cps))
+
+for (i in 1:11) {
+  testFolds = folds[ ,i]
+  trainFolds = as.integer(folds[, -i])
+  for (j in 1:length(cps)) {
+    tree = rpart(Win ~ .,
+                 data = elecTrain[trainFolds, ],
+                 method = "class",
+                 control = rpart.control(cp = cps[j]))
+    predictionMatrix[testFolds, j] = 
+      predict(tree, 
+              newdata = elecTrain[testFolds, c(-53)], 
+              type = "class")
+  }
+}
+elecResultRates = apply(predictionMatrix, 2, function(oneSet) {
+  mean(oneSet==as.numeric(elecTrain$Win))
+})
+```
+
+Next, we built a graph that dispalys the classification rate for each complexity parameter. We chose a value that was slightly larger than the classification rate containing the smallest error. 
+
+It is important to recognize how the classification rate increase at very small complexity parameter values, then begins to drop. It originally began to increase because with extremely small complexity parameters come too much noise, which reduces the classiication rate. The rate began to drop after it had reached its peak of a balance between noise and enough features to produce a high classification rate. As the complexity parameter value increased, less features were used in predicting the election result, which continuously lowered the classification rate.  
+
+```{r}
+crosValResults = data.frame(cps, elecResultRates)
+ggplot(data = crosValResults, aes(x = cps, y = elecResultRates)) + geom_line() + labs(x = "Complexity Parameter", y = "Classification Rate") + ggtitle("Complexity Parameter Selection")
+```
+
+## Final Classification Tree Creation
+
+Lastly, we built a predictor with a complexity parameter of 0.06 on the `elecTrain` data set, which allowed us to predict the election results for counties with similar features and calculate the classification rate in `elecTest`.
+
+```{r}
+cpChoice = 0.01
+finalTree = rpart(Win ~ .,
+                  data = elecTrain,
+                  method = "class",
+                  control = rpart.control(cp = cpChoice))
+
+testPreds = predict(finalTree,
+                    newdata = elecTest,
+                    type = "class")
+
+classRate = sum(testPreds == elecTest$Win) / 
+  nrow(elecTest)
+
+prp(finalTree)
+```
+
+This classification tree presents a lot of information regarding family/household composition. This diagram allows us to observe how past voting trends along with family/household composition was useful in predicting the 2016 election results. Therefore, family composition was an important predictor in the 2016 election based on the data we have. 
+
+
+
+
+
+
+## Predicting Changes from 2012 to 2016
+#### Credit: Kevin Marroquin and Ryan Saraie
+***
+
+In this step of the analysis, we are building a predictor for the change from 2012 to 2016. The ultimate goal is to predict how a county will change in its voting patterns from analyzing a chosen set of train data. For example, can we predict that a county that once voted for a Democrat will switch to a Republican in 2016 through electoral, demographic and geographic data? We will be using the K Nearest Neighbor method to establish such a predictor.
+
+To review, the K Nearest Neighbor method is one that predicts the categories of a sample of test data from the trends of data found in a train data set. The train set will have each row set to a specific label that categorizes said row. When the knn test occurs, each row in the test set is analyzed by its specific data points, and from that data, the "nearest neighbor" in label is identified. To find a nearest neighbor, the distance in similarities between the numerous variables of the data is computed for each county in the test data.
+
+To begin, we take a look at the data frame we established. To make the testing easier, we ensure that there were no ties in any of the counties with the 'sum' function. The sum of the total of equal votes from the 2012 and 2016 elections per county will both read 0, so we know that there were no ties in any county.
+
+```{r, echo=reportMode}
+sum(elecData$dem12 == elecData$gop12)
+sum(elecData$dem16 == elecData$gop16)
+
+## Now we know that in both elections, the votes prove that either a Republican or a Democrat won in the entire county.
+```
+
+We write a function named "determine_switch" to show if a Republican won in a once Democratic county, a Democrat won in a once Republican county, or neither. This function will be useful for establishing labels to each county for the change in election data. With set labels for the change in election data per county, we will have some basis by which to conduct the KNN test.
+The way "determine_switch" works is that it compares the 2012 votes (variables y and z) to the 2016 votes (variables w and x), identifying a change in majority votes. For example, if a Democract won in 2012 (y > z), but a Republican won in 2016 (w < x), the function identifies this change and returns the label "SWITCH TO REP". 
+
+```{r, echo=reportMode}
+determine_switch = function (w, x, y, z) {
+
+if ((w < x) & (y > z)) {
+    return("SWITCH TO REP")
+} else if ((w > x) & (y < z)) {
+    return("SWITCH TO DEM")
+} else if ((w < x) & (y < z)) {
+    return("NO SWITCH")
+} else if ((w > x) & (y > z)) {
+    return("NO SWITCH")
+}
+  }
+
+## Note how the function looks at variables that have larger values to determine majorities. This is the key idea for labeling the data.
+```
+
+To make the data more even for the KNN test, we convert the data values to standard units; we do this to make all of the data values more even so that one single factor does not skew the KNN results too strongly. For example, the geographic data in the merged data frame has some very high values; relative to the rest of the table, the geographic data could unfairly be the main course of change for what the results of the KNN test are. Note that we keep the election results the same, as when we add the "determine_switch" function to the table, the counties will be labeled differently if all of the votes are set to standard units. We do not want incorrect labeling, so we keep votes the same. To convert the values we want to standard units, we simply use the "apply" function, and add the scale parameter.
+
+```{r, echo=reportMode}
+## Create copy
+elecDataNorm <- elecData 
+
+## Convert to standard units
+elecDataNorm[ ,c(11:49)] <- apply(elecData[ ,c(11:49)], 2, scale)
+
+## Note that we keep all of the direct voting data the same. We do this to keep the voting statuses the same for the labels we just made, and for the sake of keeping all of the voting data consistent.
+```
+
+
+After the editing, we are able to adequately label the data, and we do so by calling each of the 2012 and 2016 voting variables into an "mapply" function. The labels will be placed on a new column in elecDataNorm, titled "switch".
+
+```{r, echo=reportMode}
+elecDataNorm$switch <- mapply(determine_switch, elecDataNorm$dem16, elecDataNorm$gop16, elecDataNorm$dem12, elecDataNorm$gop12)
+```
+
+With all of the data categorized, we are now ready to randomize our data to make an accurate K NN method. We randomize our values by writing a function to do so, and applying said function to every element in our list. Each element in the list represents a column in the data frame, and by setting each column to the same seed, all of the data matches to the same county by row. We set the seed to 100.
+
+The function that we use to randomize the data, "random_numbers", will only be used once. First setting the seed to 100, the function returns a sample of the data without replacement. In this method, every county is listed in the final randomization, so we do not lose any data. Fortunately, by setting the seed and sampling the data right after, all of the data for a single county is categorized with each other. For example, when we put the data to a list, the first data point in each element of the list will pertain to the same county.
+
+```{r, echo=reportMode}
+data_list = lapply(as.list(1:dim(elecDataNorm)[2]), function(x) elecDataNorm[,x[1]])
+## We're turning the data frame into a list, and making each part of the list a column in the data frame. This makes the randomization process simple.
+
+data_list[1:2] <- NULL
+## we don't need the state and county data for the rest of this section.
+
+random_numbers <- function(x) {
+   set.seed(100)
+   return(sample(x, 3102, replace = FALSE))
+  ## We set the seed to make the sample function reproducible.
+  ## We draw 3102 without replacement to pull every single number from the list once.
+}
+
+random_list <- lapply(data_list, random_numbers)
+## Taking every element in the list and ramdomizing it.
+```
+
+Before we do the K NN test, it's imporant to remove all of the NA values that are present in our data frame. We look for them by checking for NAs. Since there are NAs that exist from the 2004 election data and the "WhitePop" variable, we choose to get rid of the rows in which said NAs exist. We remove rows instead of columns so we do not eliminate entire variables of data. As our data is currently in a list, we convert the list to a matrix; with all of our data in a matrix, the KNN test will be possible to conduct. We use the "simplify2array" function to convert the list to a matrix, and we use the "complete.cases" function to get rid of NA values in each row of the matrix. As seen below, we will recieve the sums of NA values from the dem04, gop04, and whitePop variables. This is the number of NA values we need to get rid of.
+
+```{r, echo=reportMode}
+sum(is.na(elecData$dem04))
+sum(is.na(elecData$gop04))
+sum(is.na(elecData$whitePop))
+
+## We get rid of NA values by turning "random_list" into a matrix, and then we use complete.cases to eliminate every NA value.
+
+random_matrix <- simplify2array(random_list)
+
+## We discovered the simplify2array function from http://grokbase.com/p/r/r-help/12c4sgejgj/r-list-to-matrix
+
+random_matrix <- random_matrix[complete.cases(random_matrix), ]
+
+## We discovered the complete.cases function from http://stackoverflow.com/questions/4862178/remove-rows-with-nas-missing-values-in-data-frame
+```
+
+We can now begin the KNN test. Now that all of the data has been adequately categorized, we assign the data we need into specific sections that are referenced in the "knn" function call. We use the "knn" function from the "class" package. The train data will be the first 2000 counties of the randomized data, and the test data will be the remaining 1002 counties. We organize them in this way because having a 2/3 to 1/3 split between test and train is an efficient method of ensuring that the predictor is as accurate as possible. We want a higher proportion of test data to have more sources of obtaining data from to make a more accurate model. This will not be the final knn test conducted in this section, so we can just use an arbitrarily chosen k value, in this case k = 3, to ensure that the knn test works. We will discuss the most accurate k value later.
+
+```{r, echo=reportMode}
+switch <- factor(random_matrix[ ,48])
+random_matrix <- random_matrix[, -48]
+
+## We save the labels into a separate vector, and remove it from our matrix. We will add the labels when we do the K NN test.
+
+library(class)
+## The "class" package contains the knn function.
+
+trainSet <- rbind(random_matrix[1:2000, ])
+testSet <- rbind(random_matrix[2001:3002, ])
+trainLabels <- switch[1:2000]
+testLabels <- switch[2001:3002]
+
+## We use the first 2/3 of the randomized data (2000/3002) as the training data, and the final 1/3 (1002/3002) as the test data. 
+
+knn_test <- knn(trainSet, testSet, trainLabels, k = 3, prob = TRUE)
+summary(knn_test)
+
+## With k = 3, the KNN test tells us that the results in most counties stay the same, with a slight increase in Republican victories.
+```
+
+A single run of the "knn" function proves that the test can work. The "summary" function tells us that most of the counties, based on the prediction, will not switch in the party that wins majority votes. A smaller share of the test has counties switching to a Republican majority, and a miniscule amount switching to a Democrat majority. This gives sufficient evidence that a Republican may win in 2016, based on the change in county data. However, all of these observations only come from the assumption that k = 3. Ideally, we are looking for a k value that is most accurate to what the actual test data is labeled as per county. The k value matters because it lists the number of nearest neighbors to each specific test county, and from those nearest neighbors the label of the county is determined. With k = 3, each test county is compared to the three closest train counties in similarity of the electoral, geographic, and demographic data. While that may give an accurate result in conclusion, a higher accuracy results in a stronger test.
+
+To find the most accurate k value, we analyze the output for multiple k values and plot them. To do so, we run a visualization of the knn test by creating a Crosstable that illustrates the similarities and differences from the knn test and actual data put into the test data, in this case listed previously as "testLabels". The "CrossTable" function comes from the "gmodels" package, which we previously downloaded into R. Directly below are the summary statistics for testLabels and knn_testl. Below those is the CrossTable.
+
+```{r, echo=reportMode}
+summary(as.numeric(testLabels))
+summary(as.numeric(knn_test))
+## We compare the summaries from the raw data (test_lables) to the predicted data (knn_test). They look about equal; we can further visualize the differences with a table.
+
+## Download "gmodels"
+
+library(gmodels)
+
+CrossTable(testLabels, knn_test, prop.chisq = FALSE)
+
+## We learned how to use cross tables from https://www.analyticsvidhya.com/blog/2015/08/learning-concept-knn-algorithms-programming/
+```
+
+The crosstable shows the shared number of predictions in each category. From this table, we realize that we need to find the number of knn results that are equal to the results from test labels, and find the percentage of equal values as an indicator of accuracy. As an example, if all of the raw data had the exact same statuses from "switch" as the knn data, then the knn test would be 100% accurate. 
+
+We predict the accuracy of the knn function for a specific k value by finding the sum of equal labels per county from the knn_test and the actual testing data ("testLabels"). To easily list the output of accuracy from an input k, we write a function named "accuracy _ percentage" that contains the following steps:
+
+- Set seed to 100.
+- Set the knn test to a vector (named "result").
+- Using the knn test, set the accuracy test to a vector (named "accuracy").
+- Return the accuracy value. 
+
+
+```{r, echo=reportMode}
+(sum(knn_test == testLabels)/1000) * 100
+## This shows us the percentage of accuracy. The remaining percentage represents the percent of numbers from knn_test to test_labels that do not match.
+
+accuracy_percentage <- function(x) {
+  set.seed(100)
+  ## Setting the seed makes the data for this specific function reproducible.
+  
+  result = knn(trainSet, testSet, trainLabels, k = x, prob = TRUE)
+  accuracy = ((sum(result == testLabels)/1000) * 100)
+  return(accuracy)
+}
+
+## The "accuracy_percentage" function plainly gives the percentage of matching values for any given k value.
+```
+
+Now that we have a good function that can give us accuracy percentages for each k, we can plot different k values and find the most accurate one.
+
+The method for doing this is fairly simple. We make a line plot from 1 to 30 of each accuracy value. From what we can determine in the graph, the most accurate k value is 8.
+
+```{r, echo=reportMode}
+k_value <- c(1:30)
+accuracy_values <- sapply(c(1:30), accuracy_percentage)
+plot_values <- data.frame(k_value, accuracy_values)
+## We make a data frame for the values we want to plot.
+
+library(ggplot2)
+knn_plot = 
+  ggplot(data = plot_values, 
+         aes(x = k_value, y = accuracy_values)) + 
+  geom_point(stat = 'identity') +
+  geom_line(stat = 'identity') +
+  scale_x_continuous(name = "k value") +
+  scale_y_continuous(name = "Accuracy Percentage") +
+  labs(title = "Accuracy Levels of k values")
+knn_plot
+```
+
+Now that we have a specific plot that shows us the percentages, we note that the most accurate level is at k = 8. That basically means that the raw test data is most similar to the knn test data when the counties in the knn test are compared to the 8 closest neighbors from the train data. We run the knn test for k = 8. From what we find based on the data, it is most accurate to assume that around 953 counties will maintain their party majority in election votes from 2012, while around 0 counties will swtich to a Democratic majority and 49 will switch to a Republican majority. The accracy percentage of k = 8 is a little over 94%. Ultimately, the model establishes the prediction that the 2016 Republican has a higher chance of winning the presidency than the Democrat.
+
+```{r, echo=reportMode}
+accuracy_percentage(8)
+## Accuracy is little over 94%.
+
+set.seed(100)
+knn_test <- knn(trainSet, testSet, trainLabels, k = 8, prob = TRUE)
+summary(knn_test)
+
+CrossTable(testLabels, knn_test, prop.chisq = FALSE)
+
+## We predict 953 counties of the test data will not switch, 0 switch to a Democrat majority, and 49 switch to a Republican majority. 
+
+## Data proves that Trump has a higher chance of winning the election.
+```
+
+## Results and Discussion
+#### Credit: Kean Amidi-Abraham and Kevin Marroquin
+***
+
+The 2016 election was a surprise to many in the data science commmunity. The GOP victory contradicted the most popular and accurate of predictors, all backed by a variety of credible publications. The purpose of this project was to analyze the election results from the last four presidential elections and use prediction methods for determining the outcome of the current election and determining what factors might lead to the outcome.
+
+The first plot represents the voter margin in each county throughout the continental United States. The plot is color coded based on Democratic and Republican victory and the size of the circles, located at the center of each county, are scaled to the voter margin (the difference in votes between the competing parties). The greatest voter margins are located at the populous urban centers throughout the country, which overwhelmingly voted Democrat. The Republican victories have mostly small margins and are located in less populous areas of the country.
+
+The second plot shows the total vote counts for each county in the continental United States, color coded to the winning party and scaled to the number of votes. The white, seemingly blurry circles represent counties that are split or slightly leaning to a certain candidate. This plot reveals the close voter margins much more visually than the first plot, which represents close voter margins with smaller circles.
+
+Florida, Michigan, Wisconsin, and the Carolinas contain many white, slightly red spots, which makes sense because these are all swing states. Despite having these margins, the surrounding areas went mostly Republican.
+
+The third plot, and arguably the most important plot, highlight the counties that flipped political parties from the 2012 to 2016 elections. The darker colored circles represent these counties, while the more transparent circles represent counties that voted the same party. Based on the vote margin scale, the counties that flipped have relatively small margins: all less than 100,000. Glancing at the map, one may notice the majority of flipped counties as red, with only a few blue ones scattered throughout the west. Most of the counties that flipped Republican are located in Iowa, Wisconsin, New York, Maine, and other states thorough the Midwest and Northeast. These counties are ultimately what contributed to a Republican victory in 2016.
+
+The 2016 predictor was built using a classification tree utilizing an 11 fold cross-validation. The complexity parameter for the classification tree was varied from 0 to 0.1 and maximized to obtain an ideal value of 0.01. The plot of the classification tree shows the variables deemed important by the classification process. This includes factors such as latitude, percentage of women over 16 in the workforce, votes in 2012, and others. Looking at a random county that voted Republican:
+
+```{r}
+# Republican county is picked using a random number generator
+rand_idx = sample(dim(gopWon16)[1], 1)
+gopWon16[rand_idx, c("workAtHome", "famSingleMom", "latitude", "popOver16")]
+```
+
+The variables that the tree predicts seem to be accurate. We can measure the accuracy of the classification tree.
+
+```{r}
+# Variables of importance in elecData
+finalTree$frame$var
+
+# Following "yes" (to the left)
+branch1 = elecData[elecData$workAtHome < 1104,]
+branch2 = branch1[branch1$famSingleMom < 19,]
+branch3 = branch2[branch2$latitude < -74e+6,]
+branch4 = branch3[branch3$hhMarried >= 41,]
+# Percentage of GOP win
+length(which(branch4$Win == "gop"))/dim(branch4)[1]
+```
+
+We find the tree to be 95.8% correct while utilizing these parameters.
+
+The nearest neighbor predictor is a little over 94% accurate when using k value of 8, which is comparable to the classification method.
+
+```{r}
+# Predicting Florida
+florida = elecData[elecData$state == "FL",]
+branch1 = florida[florida$workAtHome < 1104,]
+branch2 = branch1[branch1$famSingleMom < 19,]
+branch3 = branch2[branch2$latitude < -74e+6,]
+branch4 = branch3[branch3$hhMarried >= 41,]
+# Percentage of GOP win
+length(which(branch4$Win == "gop"))/dim(branch4)[1]
+```
+
+
+### References and Acknowledgements
+***
+
+Code packages used:
+
+- R Core Team (2016). R: A language and environment for statistical computing. R Foundation for Statistical Computing, Vienna, Austria. URL https://www.R-project.org/.
+
+- H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2009. (http://docs.ggplot2.org/current/)
+
+- D. Kahle and H. Wickham. ggmap: Spatial Visualization with ggplot2. The R Journal, 5(1), 144-161. URL http://journal.r-project.org/archive/2013-1/kahle-wickham.pdf
+
+- Original S code by Richard A. Becker, Allan R. Wilks. R version by Ray Brownrigg. Enhancements by Thomas P Minka and Alex Deckmyn. (2016). maps: Draw Geographical Maps. R package version 3.1.1. https://CRAN.R-project.org/package=maps
+
+- Gregory R. Warnes, Ben Bolker, Thomas Lumley, Randall C Johnson. Contributions from Randall C. Johnson are Copyright SAIC-Frederick, Inc. Funded by the Intramural Research Program, of the NIH, National Cancer Institute and Center for Cancer Research under NCI Contract NO1-CO-12400. (2015). gmodels: Various R Programming Tools for Model Fitting. R package version 2.16.2. https://CRAN.R-project.org/package=gmodels
+
+- Terry Therneau, Beth Atkinson and Brian Ripley (2015). rpart: Recursive Partitioning and Regression Trees. R package version 4.1-10. https://CRAN.R-project.org/package=rpart
+
+Data Sources:
+
+- Data hosting courtesy of Professor Deborah Nolan, University of California Berkeley, Department of Statistics
+
+- 2016 results originally available from https://github.com/tonmcg/County_Level_Election_Results_12-
+16/blob/master/2016_US_County_Level_Presidential_Results.csv
+
+- 2012 results originally available from *Politico*: http://www.politico.com/2012-election/map/#/President/2012/
+
+- 2008 results originally available from *The Guardian*: https://www.theguardian.com/news/datablog/2009/mar/02/us-elections-2008
+
+- 2004 results available from Deborah Nolan (UC Berkeley): http://www.stat.berkeley.edu/users/nolan/data/voteProject/countyVotes2004.txt
+
+- 2010 Census data available from http://factfinder2.census.gov/faces/nav/jsf/pages/searchresults.xhtml?refresh=t
+
+- Geographic information available from Deborah Nolan: http://www.stat.berkeley.edu/users/nolan/data/voteProject/counties.gml
+
+Data Description:
+
+- http://stats.stackexchange.com/questions/121886/when-should-i-apply-feature-scaling-for-my-data
+
+- http://stats.stackexchange.com/questions/10149/converting-a-vector-to-a-vector-of-standard-units-in-r
+
+Map Visualization:
+
+- http://stackoverflow.com/questions/6528180/ggplot2-plot-without-axes-legends-etc
+
+- http://docs.ggplot2.org/current/
+
+Predicting 2016 Results:
+
+- Recursive partition tree code based on code provided by Professor Deborah Nolan, UC Berkeley Dept. of Statistics
+
+Predicting Changes From 2012 to 2016:
+
+- We discovered the simplify2array function from http://grokbase.com/p/r/r-help/12c4sgejgj/r-list-to-matrix 
+
+- We discovered the complete.cases function from http://stackoverflow.com/questions/4862178/remove-rows-with-nas-missing-values-in-data-frame
+
+- We learned how to use cross tables from https://www.analyticsvidhya.com/blog/2015/08/learning-concept-knn-algorithms-programming/
