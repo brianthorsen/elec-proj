@@ -133,6 +133,8 @@ ggplot(data = demWon16,
 
 ```
 
+![](data/popMargins.jpg)
+
 Examining an individual state on this map provides the information about how close the race was at the state level, and at a glance provides information of which candidate won each state (except for states with some counties favoring Clinton and others favoring Trump). However, the marginal vote gain for each candidate obscures how close a race might have been in a given region; a populous county with an extremely close vote appears as a small circle on the map.
 
 The following map examines the total vote at the county level, with each county colored according to how large the margin was in favor of each candidate.
@@ -164,6 +166,8 @@ ggplot(data = elecDataNoHI,
         plot.background=element_blank(),
         legend.position = "bottom", legend.box = "horizontal")
 ```
+
+![](data/popCount.jpg)
 
 This map provides better indication of how close the race was in the swing states, particularly in Florida. It also shows that some larger cities in the Midwest actually were much closer races than the marginal vote might indicate (this also explains the pockets of blue in intensely conservative areas in Texas, for instance). For counties in which the race was not close, such as Los Angeles and Alameda County, this type of information is preserved between the two maps; that being said, these are not the counties we are particularly interested in.
 
@@ -221,6 +225,8 @@ ggplot(data = elecDataNoHI) +
         legend.position = "bottom", legend.box = "horizontal")
 
 ```
+
+![](data/popFlip.jpg)
 
 It is clear from this map that the large number of counties which flipped to the GOP in the Midwest are of special importance. Most predictors prior to the election incorrectly predicted Wisconsin and Michigan as going to Clinton, and these two states made the largest difference in deciding Trump's victory. Additionally, few counties flipped in favor of Clinton; Orange County, CA is the most prominent example of this flip, and this occurred in a solidly blue state.
 
