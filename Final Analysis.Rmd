@@ -1,5 +1,5 @@
 ---
-title: "Election Visualizations"
+title: "2016 Election Result Analysis"
 author: "Brian Thorsen"
 date: "12/6/2016"
 output: html_document
