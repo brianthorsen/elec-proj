@@ -1,2 +1,5 @@
-# elec-proj
-Rmd files used for stat 133 final project
+# Election Analysis Project
+
+This was a project completed in December 2016 as a final project for STAT 133: Concepts in Computing with Data, taught by Prof. Deborah Nolan at UC Berkeley. The project consisted of extracting data of various sources from the web about the most recent (2016) and previous election results, as well as county demographic information, and merging these data into a single table. From there, our task was to analyze the 2016 election in the context of previous elections, and build some predictors which (though developed in retrospect) could perhaps shed some light onto why the presidential election turned out the way it did.
+
+More detailed descriptions and findings are included in the two primary files: $Election Data Wrangling.Rmd$ (part one of the project) and $Final Analysis.Rmd$ (part two). This is far from an exhaustive analysis, and any feedback/criticism is always welcome. In particular, the machine learning aspects of this analysis are rather limited in depth, as we only received a brief introduction in this one-semester course with no prerequisites.  If you have any comments or questions regarding the project, please let us know!
